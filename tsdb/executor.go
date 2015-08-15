@@ -65,11 +65,11 @@ func (e *ShowMeasurementsExecutor) Execute() <-chan *influxql.Row {
 		// Create a set to hold measurement names from mappers.
 		set := map[string]struct{}{}
 		// Iterate through mappers collecting measurement names.
-		for _, m := e.mappers {
+		for _, m := range e.mappers {
 			// Get the data from the mapper.
 			c, err := m.NextChunk()
 			if err != nil {
-				out <- *influxql.Row{Err: err}
+				out <- &influxql.Row{Err: err}
 				return
 			} else if c == nil {
 				// Mapper had no data.
@@ -79,7 +79,7 @@ func (e *ShowMeasurementsExecutor) Execute() <-chan *influxql.Row {
 			// Convert the mapper chunk to a string array of measurement names.
 			mms, ok := c.([]string)
 			if !ok {
-				out <- *influxql.Row{Err: fmt.Errorf("ShowMeasurementsExecutor: mapper returned invalid type: %T", c)}
+				out <- &influxql.Row{Err: fmt.Errorf("ShowMeasurementsExecutor: mapper returned invalid type: %T", c)}
 				return
 			}
 
@@ -107,125 +107,113 @@ func (e *ShowMeasurementsExecutor) Execute() <-chan *influxql.Row {
 		}
 
 		row := &influxql.Row{
-			Name: "measurements",
-			Columns: columns,
+			Name:    "measurements",
+			Columns: []string{"name"},
+			Values:  make([][]interface{}, 0, len(measurements)),
 		}
 
 		for _, m := range measurements {
-			row
+			v := []interface{}{m}
+			row.Values = append(row.Values, v)
+		}
 
-		//if rowWriter == nil {
-		//	rowWriter = &limitedRowWriter{
-		//		limit:       e.stmt.Limit,
-		//		offset:      e.stmt.Offset,
-		//		chunkSize:   e.chunkSize,
-		//		name:        chunkedOutput.Name,
-		//		selectNames: selectFields,
-		//		fields:      fields,
-		//		c:           out,
-		//	}
-		//}
-
-		//TODO: loop and emit values.
-		//Should we even use rowWriter or roll our own??
-			// Emit the data via the limiter.
-			rowWriter.Add(chunkedOutput.Values)
+		out <- row
 
 		// Keep looping until all mappers drained.
-		var err error
-		for {
-			// Get the next chunk from each Mapper.
-			for _, m := range e.mappers {
-				if m.Drained() {
-					continue
-				}
+		//var err error
+		//for {
+		//	// Get the next chunk from each Mapper.
+		//	for _, m := range e.mappers {
+		//		if m.Drained() {
+		//			continue
+		//		}
 
-				// Set the next buffered chunk on the mapper, or mark it drained.
-				for {
-					if c, err := m.NextChunk(); err != nil {
-							out <- &influxql.Row{Err: err}
-							return
-					} else if c == nil {
-						// Mapper has been drained. RIP
-						break
-					}
+		//		// Set the next buffered chunk on the mapper, or mark it drained.
+		//		for {
+		//			if c, err := m.NextChunk(); err != nil {
+		//				out <- &influxql.Row{Err: err}
+		//				return
+		//			} else if c == nil {
+		//				// Mapper has been drained. RIP
+		//				break
+		//			}
 
-					if m.bufferedChunk == nil {
-						m.bufferedChunk, err = m.NextChunk()
-						if err != nil {
-							out <- &influxql.Row{Err: err}
-							return
-						}
-						if m.bufferedChunk == nil {
-							// Mapper can do no more for us.
-							break
-						}
-					}
+		//			if m.bufferedChunk == nil {
+		//				m.bufferedChunk, err = m.NextChunk()
+		//				if err != nil {
+		//					out <- &influxql.Row{Err: err}
+		//					return
+		//				}
+		//				if m.bufferedChunk == nil {
+		//					// Mapper can do no more for us.
+		//					break
+		//				}
+		//			}
 
-					break
-				}
-			}
+		//			break
+		//		}
+		//	}
 
-			// All Mappers done?
-			if e.mappersDrained() {
-				rowWriter.Flush()
-				break
-			}
+		//	// All Mappers done?
+		//	if e.mappersDrained() {
+		//		rowWriter.Flush()
+		//		break
+		//	}
 
-			// Now empty out all the chunks up to the min time. Create new output struct for this data.
-			var chunkedOutput *MapperOutput
-			for _, m := range e.mappers {
-				if m.Drained() {
-					continue
-				}
+		//	// Now empty out all the chunks up to the min time. Create new output struct for this data.
+		//	var chunkedOutput *MapperOutput
+		//	for _, m := range e.mappers {
+		//		if m.Drained() {
+		//			continue
+		//		}
 
-				// Add up to the index to the values
-				if chunkedOutput == nil {
-					chunkedOutput = &MapperOutput{
-						Name: m.bufferedChunk.Name,
-					}
-					chunkedOutput.Values = m.bufferedChunk.Values
-				} else {
-					chunkedOutput.Values = append(chunkedOutput.Values, m.bufferedChunk.Values...)
-				}
+		//		// Add up to the index to the values
+		//		if chunkedOutput == nil {
+		//			chunkedOutput = &MapperOutput{
+		//				Name: m.bufferedChunk.Name,
+		//			}
+		//			chunkedOutput.Values = m.bufferedChunk.Values
+		//		} else {
+		//			chunkedOutput.Values = append(chunkedOutput.Values, m.bufferedChunk.Values...)
+		//		}
 
-				// Clear out the values being sent out, keep the remainder.
-				m.bufferedChunk.Values = m.bufferedChunk.Values[:0]
+		//		// Clear out the values being sent out, keep the remainder.
+		//		m.bufferedChunk.Values = m.bufferedChunk.Values[:0]
 
-				// If we emptied out all the values, clear the mapper's buffered chunk.
-				if len(m.bufferedChunk.Values) == 0 {
-					m.bufferedChunk = nil
-				}
-			}
+		//		// If we emptied out all the values, clear the mapper's buffered chunk.
+		//		if len(m.bufferedChunk.Values) == 0 {
+		//			m.bufferedChunk = nil
+		//		}
+		//	}
 
-			// Sort the values by time first so we can then handle offset and limit
-			sort.Sort(MapperValues(chunkedOutput.Values))
+		//	// Sort the values by time first so we can then handle offset and limit
+		//	sort.Sort(MapperValues(chunkedOutput.Values))
 
-			// Now that we have full name and tag details, initialize the rowWriter.
-			// The Name and Tags will be the same for all mappers.
-			fields := influxql.Fields{
-				&influxql.Field{
-					Expr: &influxql.VarRef{
-						Val: "name",
-					},
-				},
-			}
+		//	// Now that we have full name and tag details, initialize the rowWriter.
+		//	// The Name and Tags will be the same for all mappers.
+		//	fields := influxql.Fields{
+		//		&influxql.Field{
+		//			Expr: &influxql.VarRef{
+		//				Val: "name",
+		//			},
+		//		},
+		//	}
 
-			if rowWriter == nil {
-				rowWriter = &limitedRowWriter{
-					limit:       e.stmt.Limit,
-					offset:      e.stmt.Offset,
-					chunkSize:   e.chunkSize,
-					name:        chunkedOutput.Name,
-					selectNames: selectFields,
-					fields:      fields,
-					c:           out,
-				}
-			}
+		//	if rowWriter == nil {
+		//		rowWriter = &limitedRowWriter{
+		//			limit:       e.stmt.Limit,
+		//			offset:      e.stmt.Offset,
+		//			chunkSize:   e.chunkSize,
+		//			name:        chunkedOutput.Name,
+		//			selectNames: selectFields,
+		//			fields:      fields,
+		//			c:           out,
+		//		}
+		//	}
 
-			// Emit the data via the limiter.
-			rowWriter.Add(chunkedOutput.Values)
-		}
+		//	// Emit the data via the limiter.
+		//	rowWriter.Add(chunkedOutput.Values)
+		//}
 
 		close(out)
 	}()
@@ -280,7 +268,7 @@ func (e *SelectExecutor) Execute() <-chan *influxql.Row {
 // mappersDrained returns whether all the executors Mappers have been drained of data.
 func (e *SelectExecutor) mappersDrained() bool {
 	for _, m := range e.mappers {
-		if !m.drained {
+		if !m.Drained() {
 			return false
 		}
 	}
@@ -291,11 +279,12 @@ func (e *SelectExecutor) mappersDrained() bool {
 func (e *SelectExecutor) nextMapperTagSet() string {
 	tagset := ""
 	for _, m := range e.mappers {
-		if m.bufferedChunk != nil {
+		currChunk := m.CurrChunk().(*MapperOutput)
+		if currChunk != nil {
 			if tagset == "" {
-				tagset = m.bufferedChunk.key()
-			} else if m.bufferedChunk.key() < tagset {
-				tagset = m.bufferedChunk.key()
+				tagset = currChunk.key()
+			} else if currChunk.key() < tagset {
+				tagset = currChunk.key()
 			}
 		}
 	}
@@ -306,11 +295,12 @@ func (e *SelectExecutor) nextMapperTagSet() string {
 func (e *SelectExecutor) nextMapperLowestTime(tagset string) int64 {
 	minTime := int64(math.MaxInt64)
 	for _, m := range e.mappers {
-		if !m.drained && m.bufferedChunk != nil {
-			if m.bufferedChunk.key() != tagset {
+		currChunk := m.CurrChunk().(*MapperOutput)
+		if !m.Drained() && currChunk != nil {
+			if currChunk.key() != tagset {
 				continue
 			}
-			t := m.bufferedChunk.Values[len(m.bufferedChunk.Values)-1].Time
+			t := currChunk.Values[len(currChunk.Values)-1].Time
 			if t < minTime {
 				minTime = t
 			}
@@ -365,21 +355,18 @@ func (e *SelectExecutor) executeRaw(out chan *influxql.Row) {
 	for {
 		// Get the next chunk from each Mapper.
 		for _, m := range e.mappers {
-			if m.drained {
+			if m.Drained() {
 				continue
 			}
 
 			// Set the next buffered chunk on the mapper, or mark it drained.
 			for {
-				if m.bufferedChunk == nil {
-					m.bufferedChunk, err = m.NextChunk()
+				if m.CurrChunk() == nil {
+					c, err := m.NextChunk()
 					if err != nil {
 						out <- &influxql.Row{Err: err}
 						return
-					}
-					if m.bufferedChunk == nil {
-						// Mapper can do no more for us.
-						m.drained = true
+					} else if c == nil {
 						break
 					}
 
@@ -388,19 +375,23 @@ func (e *SelectExecutor) executeRaw(out chan *influxql.Row) {
 					// and the value of the chunk. If there is only 1 SELECT field across all mappers then
 					// there is no need to create k-v pairs, and there is no need to distinguish field data,
 					// as it is all for the *same* field.
-					if len(selectFields) > 1 && len(m.bufferedChunk.Fields) == 1 {
-						fieldKey := m.bufferedChunk.Fields[0]
+					currChunk := m.CurrChunk().(*MapperOutput)
+					if len(selectFields) > 1 && len(currChunk.Fields) == 1 {
+						fieldKey := currChunk.Fields[0]
 
-						for i := range m.bufferedChunk.Values {
-							field := map[string]interface{}{fieldKey: m.bufferedChunk.Values[i].Value}
-							m.bufferedChunk.Values[i].Value = field
+						for i := range currChunk.Values {
+							field := map[string]interface{}{fieldKey: currChunk.Values[i].Value}
+							currChunk.Values[i].Value = field
 						}
 					}
 				}
 
-				if e.tagSetIsLimited(m.bufferedChunk.Name) {
+				if e.tagSetIsLimited(m.CurrChunk().(*MapperOutput).Name) {
 					// chunk's tagset is limited, so no good. Try again.
-					m.bufferedChunk = nil
+					if _, err := m.NextChunk(); err != nil {
+						out <- &influxql.Row{Err: err}
+						return
+					}
 					continue
 				}
 				// This mapper has a chunk available, and it is not limited.
@@ -432,19 +423,20 @@ func (e *SelectExecutor) executeRaw(out chan *influxql.Row) {
 		// Now empty out all the chunks up to the min time. Create new output struct for this data.
 		var chunkedOutput *MapperOutput
 		for _, m := range e.mappers {
-			if m.drained {
+			if m.Drained() {
 				continue
 			}
 
 			// This mapper's next chunk is not for the next tagset, or the very first value of
 			// the chunk is at a higher acceptable timestamp. Skip it.
-			if m.bufferedChunk.key() != tagset || m.bufferedChunk.Values[0].Time > minTime {
+			currChunk := m.CurrChunk().(*MapperOutput)
+			if currChunk.key() != tagset || currChunk.Values[0].Time > minTime {
 				continue
 			}
 
 			// Find the index of the point up to the min.
-			ind := len(m.bufferedChunk.Values)
-			for i, mo := range m.bufferedChunk.Values {
+			ind := len(currChunk.Values)
+			for i, mo := range currChunk.Values {
 				if mo.Time > minTime {
 					ind = i
 					break
@@ -454,20 +446,20 @@ func (e *SelectExecutor) executeRaw(out chan *influxql.Row) {
 			// Add up to the index to the values
 			if chunkedOutput == nil {
 				chunkedOutput = &MapperOutput{
-					Name:      m.bufferedChunk.Name,
-					Tags:      m.bufferedChunk.Tags,
+					Name: currChunk.Name,
+					Tags: currChunk.Tags,
 					cursorKey: m.bufferedChunk.key(),
 				}
-				chunkedOutput.Values = m.bufferedChunk.Values[:ind]
+				chunkedOutput.Values = currChunk.Values[:ind]
 			} else {
-				chunkedOutput.Values = append(chunkedOutput.Values, m.bufferedChunk.Values[:ind]...)
+				chunkedOutput.Values = append(chunkedOutput.Values, currChunk.Values[:ind]...)
 			}
 
 			// Clear out the values being sent out, keep the remainder.
-			m.bufferedChunk.Values = m.bufferedChunk.Values[ind:]
+			currChunk.Values = currChunk.Values[ind:]
 
 			// If we emptied out all the values, clear the mapper's buffered chunk.
-			if len(m.bufferedChunk.Values) == 0 {
+			if len(currChunk.Values) == 0 {
 				m.bufferedChunk = nil
 			}
 		}
