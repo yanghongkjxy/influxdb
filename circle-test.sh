@@ -5,7 +5,7 @@
 # build process for InfluxDB.
 
 BUILD_DIR=$HOME/influxdb-build
-GO_VERSION=go1.5rc1
+GO_VERSION=go1.5
 PARALLELISM="-parallel 256"
 TIMEOUT="-timeout 600s"
 
