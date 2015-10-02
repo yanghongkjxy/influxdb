@@ -182,7 +182,10 @@ func (q *QueryExecutor) ExecuteQuery(query *influxql.Query, database string, chu
 					break
 				}
 			case *influxql.ShowTagValuesStatement:
-				res = q.executeShowTagValuesStatement(stmt, database)
+				if err := q.executeStatement(i, stmt, database, results, chunkSize); err != nil {
+					results <- &influxql.Result{Err: err}
+					break
+				}
 			case *influxql.ShowFieldKeysStatement:
 				res = q.executeShowFieldKeysStatement(stmt, database)
 			case *influxql.DeleteStatement:
