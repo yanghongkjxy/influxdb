@@ -88,9 +88,9 @@ supported_builds = {
     'darwin': [ "amd64", "386" ],
     # Windows is not currently supported in InfluxDB 0.9.5 due to use of mmap
     # 'windows': [ "amd64", "386", "arm" ],
-    'linux': [ "amd64", "386" ]
+    'linux': [ "amd64", "386", "arm" ]
 }
-supported_go = [ '1.5.1' ]
+supported_go = [ '1.5.1', '1.4.2' ]
 supported_packages = {
     "darwin": [ "tar", "zip" ],
     "linux": [ "deb", "rpm", "tar", "zip" ],
@@ -362,7 +362,7 @@ def generate_md5_from_file(path):
             m.update(chunk)
     return m.hexdigest()
     
-def build_packages(build_output, version, nightly=False, rc=None):
+def build_packages(build_output, version, nightly=False, rc=None, iteration=1):
     outfiles = []
     tmp_build_dir = create_temp_dir()
     try:
@@ -411,10 +411,15 @@ def build_packages(build_output, version, nightly=False, rc=None):
                         current_location)
                     if package_type == "rpm":
                         fpm_command += "--depends coreutils "
+                        # For rpms with RC, add to iteration for adherence to Fedora packaging standard:
+                        # http://fedoraproject.org/wiki/Packaging%3aNamingGuidelines#NonNumericRelease
                         if rc:
-                            fpm_command += "--iteration {} ".format(rc)
+                            fpm_command += "--iteration 0.{}.rc{} ".format(iteration, rc)
                         else:
-                            fpm_command += "--iteration 1 "
+                            fpm_command += "--iteration 1 ".format(iteration)
+                    if package_type == 'deb' and rc:
+                        # For debs with an RC, just append to version number
+                        version += "-rc{}".format(rc)
                     out = run(fpm_command, shell=True)
                     matches = re.search(':path=>"(.*)"', out)
                     outfile = None
@@ -476,6 +481,7 @@ def main():
     clean = False
     upload = False
     test = False
+    iteration = 1
     
     for arg in sys.argv[1:]:
         if '--outdir' in arg:
@@ -520,6 +526,8 @@ def main():
         elif '--clean' in arg:
             # Signifies that the outdir should be deleted before building
             clean = True
+        elif '--iteration' in arg:
+            iteration = arg.split("=")[1]
         elif '--help' in arg:
             print_usage()
             return 0
@@ -533,7 +541,7 @@ def main():
             print "!! Cannot be both nightly and a release candidate! Stopping."
             return 1
         # In order to support nightly builds on the repository, we are adding the epoch timestamp
-        # to the version so that seamless upgrades are possible.
+        # to the version so that version numbers are always greater than the previous nightly.
         version = "{}.n{}".format(version, int(time.time()))
 
     # Pre-build checks
@@ -599,7 +607,7 @@ def main():
         if not check_path_for("fpm"):
             print "!! Cannot package without command 'fpm'. Stopping."
             return 1
-        packages = build_packages(build_output, version, nightly=nightly, rc=rc)
+        packages = build_packages(build_output, version, nightly=nightly, rc=rc, iteration=iteration)
         # TODO(rossmcdonald): Add nice output for print_package_summary()
         # print_package_summary(packages)
         # Optionally upload to S3
