@@ -43,10 +43,10 @@ DEFAULT_CONFIG = "etc/config.sample.toml"
 
 # META-PACKAGE VARIABLES
 PACKAGE_LICENSE = "MIT"
-PACKAGE_URL = "github.com/influxdb/influxdb"
-MAINTAINER = "support@influxdb.com"
+PACKAGE_URL = "https://github.com/influxdb/influxdb"
+MAINTAINER = "InfluxData (support@influxdb.com)"
 VENDOR = "InfluxData"
-DESCRIPTION = "A distributed time-series database"
+DESCRIPTION = "A distributed time-series database."
 
 # SCRIPT START
 prereqs = [ 'git', 'go' ]
@@ -331,19 +331,21 @@ def create_package_fs(build_root):
     print "\t- Creating a filesystem hierarchy from directory: {}".format(build_root)
     # Using [1:] for the path names due to them being absolute
     # (will overwrite previous paths, per 'os.path.join' documentation)
-    create_dir(os.path.join(build_root, INSTALL_ROOT_DIR[1:]))
-    create_dir(os.path.join(build_root, LOG_DIR[1:]))
-    create_dir(os.path.join(build_root, DATA_DIR[1:]))
-    create_dir(os.path.join(build_root, SCRIPT_DIR[1:]))
-    create_dir(os.path.join(build_root, CONFIG_DIR[1:]))
-    create_dir(os.path.join(build_root, LOGROTATE_DIR[1:]))
+    dirs = [ INSTALL_ROOT_DIR[1:], LOG_DIR[1:], DATA_DIR[1:], SCRIPT_DIR[1:], CONFIG_DIR[1:], LOGROTATE_DIR[1:] ]
+    for d in dirs:
+        create_dir(os.path.join(build_root, d))
+        os.chmod(os.path.join(build_root, d), 0755)
 
 def package_scripts(build_root):
     print "\t- Copying scripts and sample configuration to build directory"
     shutil.copyfile(INIT_SCRIPT, os.path.join(build_root, SCRIPT_DIR[1:], INIT_SCRIPT.split('/')[1]))
+    os.chmod(os.path.join(build_root, SCRIPT_DIR[1:], INIT_SCRIPT.split('/')[1]), 0644)
     shutil.copyfile(SYSTEMD_SCRIPT, os.path.join(build_root, SCRIPT_DIR[1:], SYSTEMD_SCRIPT.split('/')[1]))
+    os.chmod(os.path.join(build_root, SCRIPT_DIR[1:], SYSTEMD_SCRIPT.split('/')[1]), 0644)
     shutil.copyfile(LOGROTATE_SCRIPT, os.path.join(build_root, SCRIPT_DIR[1:], LOGROTATE_SCRIPT.split('/')[1]))
+    os.chmod(os.path.join(build_root, SCRIPT_DIR[1:], LOGROTATE_SCRIPT.split('/')[1]), 0644)
     shutil.copyfile(DEFAULT_CONFIG, os.path.join(build_root, CONFIG_DIR[1:], "influxdb.conf"))
+    os.chmod(os.path.join(build_root, CONFIG_DIR[1:], "influxdb.conf"), 0644)
 
 def go_get(update=False):        
     get_command = None
