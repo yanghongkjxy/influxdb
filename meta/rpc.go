@@ -74,6 +74,56 @@ func (r *rpc) proxyLeader(conn *net.TCPConn, buf []byte) {
 	}
 }
 
+func (r *rpc) logHopCount(rpcType internal.RPCType, hopCount uint64) {
+	if hopCount > 1 {
+		r.logger.Printf("hop count for message type %v: %d", rpcType, hopCount)
+	}
+}
+
+func (r *rpc) incrementHopCount(rpcType internal.RPCType, in []byte) ([]byte, error) {
+	switch rpcType {
+	case internal.RPCType_FetchData:
+		var req internal.FetchDataRequest
+		if err := proto.Unmarshal(in, &req); err != nil {
+			return nil, fmt.Errorf("fetch request unmarshal: %v", err)
+		}
+		hopCount := req.GetHopCount() + 1
+		r.logHopCount(rpcType, hopCount)
+		req.HopCount = proto.Uint64(hopCount)
+		if out, err := proto.Marshal(&req); err != nil {
+			return nil, err
+		} else {
+			return out, nil
+		}
+	case internal.RPCType_Join:
+		var req internal.JoinRequest
+		if err := proto.Unmarshal(in, &req); err != nil {
+			return nil, fmt.Errorf("join request unmarshal: %v", err)
+		}
+		hopCount := req.GetHopCount() + 1
+		req.HopCount = proto.Uint64(hopCount)
+		if out, err := proto.Marshal(&req); err != nil {
+			return nil, err
+		} else {
+			return out, nil
+		}
+	case internal.RPCType_PromoteRaft:
+		var req internal.PromoteRaftRequest
+		if err := proto.Unmarshal(in, &req); err != nil {
+			return nil, fmt.Errorf("promote to raft request unmarshal: %v", err)
+		}
+		hopCount := req.GetHopCount() + 1
+		req.HopCount = proto.Uint64(hopCount)
+		if out, err := proto.Marshal(&req); err != nil {
+			return nil, err
+		} else {
+			return out, nil
+		}
+	default:
+		return nil, fmt.Errorf("increment hop count: unknown rpc type:%v", rpcType)
+	}
+}
+
 // handleRPCConn reads a command from the connection and executes it.
 func (r *rpc) handleRPCConn(conn net.Conn) {
 	defer conn.Close()
@@ -91,6 +141,11 @@ func (r *rpc) handleRPCConn(conn net.Conn) {
 	}
 
 	if !r.store.IsLeader() && typ != internal.RPCType_PromoteRaft {
+		if b, e := r.incrementHopCount(typ, buf); e != nil {
+			r.sendError(conn, e.Error())
+		} else {
+			buf = b
+		}
 		r.proxyLeader(conn.(*net.TCPConn), pack(typ, buf))
 		return
 	}
@@ -351,6 +406,7 @@ func (r *rpc) fetchMetaData(blocking bool) (*Data, error) {
 		Index:    proto.Uint64(index),
 		Term:     proto.Uint64(term),
 		Blocking: proto.Bool(blocking),
+		HopCount: proto.Uint64(0),
 	})
 	if err != nil {
 		return nil, err
@@ -378,7 +434,8 @@ func (r *rpc) fetchMetaData(blocking bool) (*Data, error) {
 // node's cluster address
 func (r *rpc) join(localAddr, remoteAddr string) (*JoinResult, error) {
 	req := &internal.JoinRequest{
-		Addr: proto.String(localAddr),
+		Addr:     proto.String(localAddr),
+		HopCount: proto.Uint64(0),
 	}
 
 	resp, err := r.call(remoteAddr, req)
@@ -406,6 +463,7 @@ func (r *rpc) enableRaft(addr string, peers []string) error {
 	req := &internal.PromoteRaftRequest{
 		Addr:      proto.String(addr),
 		RaftNodes: peers,
+		HopCount:  proto.Uint64(0),
 	}
 
 	resp, err := r.call(addr, req)

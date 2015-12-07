@@ -1487,6 +1487,7 @@ type FetchDataRequest struct {
 	Index            *uint64 `protobuf:"varint,1,req,name=Index" json:"Index,omitempty"`
 	Term             *uint64 `protobuf:"varint,2,req,name=Term" json:"Term,omitempty"`
 	Blocking         *bool   `protobuf:"varint,3,opt,name=Blocking,def=0" json:"Blocking,omitempty"`
+	HopCount         *uint64 `protobuf:"varint,4,req,name=HopCount,def=0" json:"HopCount,omitempty"`
 	XXX_unrecognized []byte  `json:"-"`
 }
 
@@ -1495,6 +1496,7 @@ func (m *FetchDataRequest) String() string { return proto.CompactTextString(m) }
 func (*FetchDataRequest) ProtoMessage()    {}
 
 const Default_FetchDataRequest_Blocking bool = false
+const Default_FetchDataRequest_HopCount uint64 = 0
 
 func (m *FetchDataRequest) GetIndex() uint64 {
 	if m != nil && m.Index != nil {
@@ -1515,6 +1517,13 @@ func (m *FetchDataRequest) GetBlocking() bool {
 		return *m.Blocking
 	}
 	return Default_FetchDataRequest_Blocking
+}
+
+func (m *FetchDataRequest) GetHopCount() uint64 {
+	if m != nil && m.HopCount != nil {
+		return *m.HopCount
+	}
+	return Default_FetchDataRequest_HopCount
 }
 
 type FetchDataResponse struct {
@@ -1559,6 +1568,7 @@ func (m *FetchDataResponse) GetData() []byte {
 
 type JoinRequest struct {
 	Addr             *string `protobuf:"bytes,1,req,name=Addr" json:"Addr,omitempty"`
+	HopCount         *uint64 `protobuf:"varint,2,req,name=HopCount,def=0" json:"HopCount,omitempty"`
 	XXX_unrecognized []byte  `json:"-"`
 }
 
@@ -1566,11 +1576,20 @@ func (m *JoinRequest) Reset()         { *m = JoinRequest{} }
 func (m *JoinRequest) String() string { return proto.CompactTextString(m) }
 func (*JoinRequest) ProtoMessage()    {}
 
+const Default_JoinRequest_HopCount uint64 = 0
+
 func (m *JoinRequest) GetAddr() string {
 	if m != nil && m.Addr != nil {
 		return *m.Addr
 	}
 	return ""
+}
+
+func (m *JoinRequest) GetHopCount() uint64 {
+	if m != nil && m.HopCount != nil {
+		return *m.HopCount
+	}
+	return Default_JoinRequest_HopCount
 }
 
 type JoinResponse struct {
@@ -1616,12 +1635,15 @@ func (m *JoinResponse) GetNodeID() uint64 {
 type PromoteRaftRequest struct {
 	Addr             *string  `protobuf:"bytes,1,req,name=Addr" json:"Addr,omitempty"`
 	RaftNodes        []string `protobuf:"bytes,2,rep,name=RaftNodes" json:"RaftNodes,omitempty"`
+	HopCount         *uint64  `protobuf:"varint,3,req,name=HopCount,def=0" json:"HopCount,omitempty"`
 	XXX_unrecognized []byte   `json:"-"`
 }
 
 func (m *PromoteRaftRequest) Reset()         { *m = PromoteRaftRequest{} }
 func (m *PromoteRaftRequest) String() string { return proto.CompactTextString(m) }
 func (*PromoteRaftRequest) ProtoMessage()    {}
+
+const Default_PromoteRaftRequest_HopCount uint64 = 0
 
 func (m *PromoteRaftRequest) GetAddr() string {
 	if m != nil && m.Addr != nil {
@@ -1635,6 +1657,13 @@ func (m *PromoteRaftRequest) GetRaftNodes() []string {
 		return m.RaftNodes
 	}
 	return nil
+}
+
+func (m *PromoteRaftRequest) GetHopCount() uint64 {
+	if m != nil && m.HopCount != nil {
+		return *m.HopCount
+	}
+	return Default_PromoteRaftRequest_HopCount
 }
 
 type PromoteRaftResponse struct {

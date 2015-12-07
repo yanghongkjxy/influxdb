@@ -338,6 +338,7 @@ message FetchDataRequest {
     required uint64 Index = 1;
     required uint64 Term = 2;
     optional bool Blocking = 3 [default = false];
+    required uint64 HopCount = 4 [default = 0 ];
 }
 
 message FetchDataResponse {
@@ -349,6 +350,7 @@ message FetchDataResponse {
 
 message JoinRequest {
     required string Addr = 1;
+    required uint64 HopCount = 2 [default = 0 ];
 }
 
 message JoinResponse {
@@ -368,10 +370,10 @@ message JoinResponse {
 message PromoteRaftRequest {
     required string Addr = 1;
     repeated string RaftNodes = 2;
+    required uint64 HopCount = 3 [default = 0 ];
 }
 
 message PromoteRaftResponse {
     required ResponseHeader Header = 1;
-
     optional bool Success = 2;
 }
