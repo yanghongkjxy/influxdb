@@ -170,7 +170,7 @@ func TestCluster_Query_DropDatabaseIsolated(t *testing.T) {
 
 func TestCluster_Query_DropAndRecreateSeries(t *testing.T) {
 	t.Parallel()
-	t.Skip()
+	//t.Skip()
 	c, err := NewCluster(5)
 	if err != nil {
 		t.Fatalf("error creating cluster: %s", err)
@@ -240,7 +240,7 @@ func TestCluster_Query_DropAndRecreateSeries(t *testing.T) {
 
 func TestCluster_Query_DropSeriesFromRegex(t *testing.T) {
 	t.Parallel()
-	t.Skip()
+	//t.Skip()
 	c, err := NewCluster(5)
 	if err != nil {
 		t.Fatalf("error creating cluster: %s", err)
@@ -325,7 +325,7 @@ func TestCluster_RetentionPolicyCommands(t *testing.T) {
 
 func TestCluster_DatabaseRetentionPolicyAutoCreate(t *testing.T) {
 	t.Parallel()
-	t.Skip()
+	//t.Skip()
 	c, err := NewCluster(5)
 	if err != nil {
 		t.Fatalf("error creating cluster: %s", err)

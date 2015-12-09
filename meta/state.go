@@ -106,7 +106,8 @@ func (r *localRaft) open() error {
 	s := r.store
 	// Setup raft configuration.
 	config := raft.DefaultConfig()
-	config.LogOutput = ioutil.Discard
+	config.LogOutput = os.Stdout
+	//config.LogOutput = ioutil.Discard
 
 	if s.clusterTracingEnabled {
 		config.Logger = s.Logger
