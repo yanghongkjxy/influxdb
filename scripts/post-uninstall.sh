@@ -1,4 +1,12 @@
 #!/bin/sh
+
+# Do not run post-uninstall script during an upgrade on Red Hat
+if [ -e /etc/redhat-release ]; then
+  if [ $1 -ge 1 ]; then
+    exit 0
+  fi
+fi
+
 rm -f /etc/default/influxdb
 
 # Systemd
