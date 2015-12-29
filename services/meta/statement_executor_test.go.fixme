@@ -16,7 +16,7 @@ import (
 // Ensure a CREATE DATABASE statement can be executed.
 func TestStatementExecutor_ExecuteStatement_CreateDatabase(t *testing.T) {
 	e := NewStatementExecutor()
-	e.Store.CreateDatabaseFn = func(name string) (*meta.DatabaseInfo, error) {
+	e.Store.CreateDatabaseFn = func(name string, ifNotExists bool) (*meta.DatabaseInfo, error) {
 		if name != "foo" {
 			t.Fatalf("unexpected name: %s", name)
 		}
@@ -1097,8 +1097,8 @@ type StatementExecutorStore struct {
 	LeaderFn                            func() string
 	DatabaseFn                          func(name string) (*meta.DatabaseInfo, error)
 	DatabasesFn                         func() ([]meta.DatabaseInfo, error)
-	CreateDatabaseFn                    func(name string) (*meta.DatabaseInfo, error)
-	CreateDatabaseWithRetentionPolicyFn func(name string, rpi *meta.RetentionPolicyInfo) (*meta.DatabaseInfo, error)
+	CreateDatabaseFn                    func(name string, ifNotExists bool) (*meta.DatabaseInfo, error)
+	CreateDatabaseWithRetentionPolicyFn func(name string, ifNotExists bool, rpi *meta.RetentionPolicyInfo) (*meta.DatabaseInfo, error)
 	DropDatabaseFn                      func(name string) error
 	DeleteNodeFn                        func(nodeID uint64) error
 	DefaultRetentionPolicyFn            func(database string) (*meta.RetentionPolicyInfo, error)

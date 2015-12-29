@@ -185,7 +185,7 @@ func (fsm *storeFSM) applyCreateDatabaseCommand(cmd *internal.Command) interface
 
 	// Copy data and update.
 	other := fsm.data.Clone()
-	if err := other.CreateDatabase(v.GetName()); err != nil {
+	if err := other.CreateDatabase(v.GetName(), v.GetIfNotExists()); err != nil {
 		return err
 	}
 	fsm.data = other

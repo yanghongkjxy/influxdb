@@ -21,8 +21,8 @@ type StatementExecutor struct {
 		DeleteDataNode(nodeID uint64) error
 		Database(name string) (*DatabaseInfo, error)
 		Databases() ([]DatabaseInfo, error)
-		CreateDatabase(name string) (*DatabaseInfo, error)
-		CreateDatabaseWithRetentionPolicy(name string, rpi *RetentionPolicyInfo) (*DatabaseInfo, error)
+		CreateDatabase(name string, ifNotExists bool) (*DatabaseInfo, error)
+		CreateDatabaseWithRetentionPolicy(name string, ifNotExists bool, rpi *RetentionPolicyInfo) (*DatabaseInfo, error)
 		DropDatabase(name string) error
 
 		CreateRetentionPolicy(database string, rpi *RetentionPolicyInfo) (*RetentionPolicyInfo, error)
@@ -115,12 +115,9 @@ func (e *StatementExecutor) executeCreateDatabaseStatement(q *influxql.CreateDat
 		rpi := NewRetentionPolicyInfo(q.RetentionPolicyName)
 		rpi.Duration = q.RetentionPolicyDuration
 		rpi.ReplicaN = q.RetentionPolicyReplication
-		_, err = e.Store.CreateDatabaseWithRetentionPolicy(q.Name, rpi)
+		_, err = e.Store.CreateDatabaseWithRetentionPolicy(q.Name, q.IfNotExists, rpi)
 	} else {
-		_, err = e.Store.CreateDatabase(q.Name)
-	}
-	if err == ErrDatabaseExists && q.IfNotExists {
-		err = nil
+		_, err = e.Store.CreateDatabase(q.Name, q.IfNotExists)
 	}
 
 	return &influxql.Result{Err: err}

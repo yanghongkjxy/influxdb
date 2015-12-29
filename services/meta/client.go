@@ -2,6 +2,7 @@ package meta
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -108,9 +109,11 @@ func (c *Client) Databases() ([]DatabaseInfo, error) {
 }
 
 // CreateDatabase creates a database.
-func (c *Client) CreateDatabase(name string) (*DatabaseInfo, error) {
+func (c *Client) CreateDatabase(name string, ifNotExists bool) (*DatabaseInfo, error) {
+	fmt.Printf("ifNotExists = %v\n", ifNotExists)
 	cmd := &internal.CreateDatabaseCommand{
-		Name: proto.String(name),
+		Name:        proto.String(name),
+		IfNotExists: proto.Bool(ifNotExists),
 	}
 
 	err := c.retryUntilExec(internal.Command_CreateDatabaseCommand, internal.E_CreateDatabaseCommand_Command, cmd)
@@ -127,12 +130,12 @@ func (c *Client) CreateDatabaseIfNotExists(name string) (*DatabaseInfo, error) {
 }
 
 // CreateDatabaseWithRetentionPolicy creates a database with the specified retention policy.
-func (c *Client) CreateDatabaseWithRetentionPolicy(name string, rpi *RetentionPolicyInfo) (*DatabaseInfo, error) {
+func (c *Client) CreateDatabaseWithRetentionPolicy(name string, ifNotExists bool, rpi *RetentionPolicyInfo) (*DatabaseInfo, error) {
 	if rpi.Duration < MinRetentionPolicyDuration && rpi.Duration != 0 {
 		return nil, ErrRetentionPolicyDurationTooLow
 	}
 
-	if _, err := c.CreateDatabase(name); err != nil {
+	if _, err := c.CreateDatabase(name, ifNotExists); err != nil {
 		return nil, err
 	}
 
@@ -393,6 +396,10 @@ func (c *Client) exec(addr string, typ internal.Command_Type, desc *proto.Extens
 
 	if err := proto.Unmarshal(b, res); err != nil {
 		return 0, err
+	}
+
+	if res.GetError() != "" {
+		return 0, errors.New(res.GetError())
 	}
 
 	return res.GetIndex(), nil

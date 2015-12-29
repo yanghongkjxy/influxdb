@@ -84,6 +84,7 @@ func TestMetaService_CreateDatabaseIfNotExists(t *testing.T) {
 	defer s.Close()
 	defer c.Close()
 
+	//qry := `CREATE DATABASE db0`
 	qry := `CREATE DATABASE IF NOT EXISTS db0`
 	if res := c.ExecuteStatement(mustParseStatement(qry)); res.Err != nil {
 		t.Fatal(res.Err)
@@ -98,42 +99,6 @@ func TestMetaService_CreateDatabaseIfNotExists(t *testing.T) {
 
 	if res := c.ExecuteStatement(mustParseStatement(qry)); res.Err != nil {
 		t.Fatal(res.Err)
-	}
-}
-
-func TestMetaService_Databases(t *testing.T) {
-	t.Parallel()
-
-	d, s, c := newServiceAndClient()
-	defer os.RemoveAll(d)
-	defer s.Close()
-	defer c.Close()
-
-	// Create two databases.
-	db, err := c.CreateDatabase("db0")
-	if err != nil {
-		t.Fatalf(err.Error())
-	} else if db.Name != "db0" {
-		t.Fatalf("db name wrong: %s", db.Name)
-	}
-
-	db, err = c.CreateDatabase("db1")
-	if err != nil {
-		t.Fatalf(err.Error())
-	} else if db.Name != "db1" {
-		t.Fatalf("db name wrong: %s", db.Name)
-	}
-
-	dbs, err := c.Databases()
-	if err != nil {
-		t.Fatalf(err.Error())
-	}
-	if len(dbs) != 2 {
-		t.Fatalf("expected 2 databases but got %d", len(dbs))
-	} else if dbs[0].Name != "db0" {
-		t.Fatalf("db name wrong: %s", dbs[0].Name)
-	} else if dbs[1].Name != "db1" {
-		t.Fatalf("db name wrong: %s", dbs[1].Name)
 	}
 }
 
@@ -166,6 +131,42 @@ func TestMetaService_CreateDatabaseWithRetentionPolicy(t *testing.T) {
 		t.Fatalf("rp duration wrong: %s", rp.Duration.String())
 	} else if rp.ReplicaN != 1 {
 		t.Fatalf("rp replication wrong: %d", rp.ReplicaN)
+	}
+}
+
+func TestMetaService_Databases(t *testing.T) {
+	t.Parallel()
+
+	d, s, c := newServiceAndClient()
+	defer os.RemoveAll(d)
+	defer s.Close()
+	defer c.Close()
+
+	// Create two databases.
+	db, err := c.CreateDatabase("db0", false)
+	if err != nil {
+		t.Fatalf(err.Error())
+	} else if db.Name != "db0" {
+		t.Fatalf("db name wrong: %s", db.Name)
+	}
+
+	db, err = c.CreateDatabase("db1", false)
+	if err != nil {
+		t.Fatalf(err.Error())
+	} else if db.Name != "db1" {
+		t.Fatalf("db name wrong: %s", db.Name)
+	}
+
+	dbs, err := c.Databases()
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	if len(dbs) != 2 {
+		t.Fatalf("expected 2 databases but got %d", len(dbs))
+	} else if dbs[0].Name != "db0" {
+		t.Fatalf("db name wrong: %s", dbs[0].Name)
+	} else if dbs[1].Name != "db1" {
+		t.Fatalf("db name wrong: %s", dbs[1].Name)
 	}
 }
 

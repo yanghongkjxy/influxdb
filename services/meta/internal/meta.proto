@@ -153,6 +153,7 @@ message CreateDatabaseCommand {
         optional CreateDatabaseCommand command = 103;
     }
 	required string Name = 1;
+	required bool IfNotExists = 2;
 }
 
 message DropDatabaseCommand {

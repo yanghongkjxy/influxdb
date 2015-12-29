@@ -176,10 +176,13 @@ func (data *Data) CloneDatabases() []DatabaseInfo {
 
 // CreateDatabase creates a new database.
 // Returns an error if name is blank or if a database with the same name already exists.
-func (data *Data) CreateDatabase(name string) error {
+func (data *Data) CreateDatabase(name string, ifNotExists bool) error {
 	if name == "" {
 		return ErrDatabaseNameRequired
 	} else if data.Database(name) != nil {
+		if ifNotExists {
+			return nil
+		}
 		return ErrDatabaseExists
 	}
 
