@@ -83,6 +83,7 @@ func (c *Client) MetaNodes() ([]NodeInfo, error) {
 	return nil, nil
 }
 
+// Database returns info for the requested database.
 func (c *Client) Database(name string) (*DatabaseInfo, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -96,10 +97,17 @@ func (c *Client) Database(name string) (*DatabaseInfo, error) {
 	return nil, influxdb.ErrDatabaseNotFound(name)
 }
 
+// Databases returns a list of all database infos.
 func (c *Client) Databases() ([]DatabaseInfo, error) {
-	return nil, nil
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.data.Databases == nil {
+		return []DatabaseInfo{}, nil
+	}
+	return c.data.CloneDatabases(), nil
 }
 
+// CreateDatabase creates a database.
 func (c *Client) CreateDatabase(name string) (*DatabaseInfo, error) {
 	cmd := &internal.CreateDatabaseCommand{
 		Name: proto.String(name),
@@ -113,20 +121,76 @@ func (c *Client) CreateDatabase(name string) (*DatabaseInfo, error) {
 	return c.Database(name)
 }
 
-func (c *Client) CreateDatabaseWithRetentionPolicy(name string, rpi *RetentionPolicyInfo) (*DatabaseInfo, error) {
-	return nil, nil
-}
-
-func (c *Client) DropDatabase(name string) error {
-	return nil
-}
-
-func (c *Client) CreateRetentionPolicy(database string, rpi *RetentionPolicyInfo) (*RetentionPolicyInfo, error) {
-	return nil, nil
-}
-
+// CreateDatabaseIfNotExists creates a database if it doesn't already exist.
 func (c *Client) CreateDatabaseIfNotExists(name string) (*DatabaseInfo, error) {
 	return nil, nil
+}
+
+// CreateDatabaseWithRetentionPolicy creates a database with the specified retention policy.
+func (c *Client) CreateDatabaseWithRetentionPolicy(name string, rpi *RetentionPolicyInfo) (*DatabaseInfo, error) {
+	if rpi.Duration < MinRetentionPolicyDuration && rpi.Duration != 0 {
+		return nil, ErrRetentionPolicyDurationTooLow
+	}
+
+	if _, err := c.CreateDatabase(name); err != nil {
+		return nil, err
+	}
+
+	cmd := &internal.CreateRetentionPolicyCommand{
+		Database:        proto.String(name),
+		RetentionPolicy: rpi.marshal(),
+	}
+
+	if err := c.retryUntilExec(internal.Command_CreateRetentionPolicyCommand, internal.E_CreateRetentionPolicyCommand_Command, cmd); err != nil {
+		return nil, err
+	}
+
+	return c.Database(name)
+}
+
+// DropDatabase deletes a database.
+func (c *Client) DropDatabase(name string) error {
+	cmd := &internal.DropDatabaseCommand{
+		Name: proto.String(name),
+	}
+
+	return c.retryUntilExec(internal.Command_DropDatabaseCommand, internal.E_DropDatabaseCommand_Command, cmd)
+}
+
+// CreateRetentionPolicy creates a retention policy on the specified database.
+func (c *Client) CreateRetentionPolicy(database string, rpi *RetentionPolicyInfo) (*RetentionPolicyInfo, error) {
+	if rpi.Duration < MinRetentionPolicyDuration && rpi.Duration != 0 {
+		return nil, ErrRetentionPolicyDurationTooLow
+	}
+
+	cmd := &internal.CreateRetentionPolicyCommand{
+		Database:        proto.String(database),
+		RetentionPolicy: rpi.marshal(),
+	}
+
+	if err := c.retryUntilExec(internal.Command_CreateRetentionPolicyCommand, internal.E_CreateRetentionPolicyCommand_Command, cmd); err != nil {
+		return nil, err
+	}
+
+	return c.RetentionPolicy(database, rpi.Name)
+}
+
+// RetentionPolicy returns the requested retention policy info.
+func (c *Client) RetentionPolicy(database, name string) (rpi *RetentionPolicyInfo, err error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	db, err := c.Database(database)
+	if err != nil {
+		return nil, err
+	}
+
+	return db.RetentionPolicy(name), nil
+}
+
+// VisitRetentionPolicies executes the given function on all retention policies in all databases.
+func (c *Client) VisitRetentionPolicies(f func(d DatabaseInfo, r RetentionPolicyInfo)) {
+
 }
 
 func (c *Client) CreateRetentionPolicyIfNotExists(database string, rpi *RetentionPolicyInfo) (*RetentionPolicyInfo, error) {
@@ -195,14 +259,6 @@ func (c *Client) AdminUserExists() (bool, error) {
 
 func (c *Client) Authenticate(username, password string) (*UserInfo, error) {
 	return nil, nil
-}
-
-func (c *Client) RetentionPolicy(database, name string) (rpi *RetentionPolicyInfo, err error) {
-	return nil, nil
-}
-
-func (c *Client) VisitRetentionPolicies(f func(d DatabaseInfo, r RetentionPolicyInfo)) {
-
 }
 
 func (c *Client) UserCount() (int, error) {

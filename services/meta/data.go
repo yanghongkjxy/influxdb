@@ -162,6 +162,18 @@ func (data *Data) Database(name string) *DatabaseInfo {
 	return nil
 }
 
+// CloneDatabases returns a copy of the databases.
+func (data *Data) CloneDatabases() []DatabaseInfo {
+	if data.Databases == nil {
+		return nil
+	}
+	dbs := make([]DatabaseInfo, len(data.Databases))
+	for i := range data.Databases {
+		dbs[i] = data.Databases[i].clone()
+	}
+	return dbs
+}
+
 // CreateDatabase creates a new database.
 // Returns an error if name is blank or if a database with the same name already exists.
 func (data *Data) CreateDatabase(name string) error {
