@@ -84,7 +84,6 @@ func TestMetaService_CreateDatabaseIfNotExists(t *testing.T) {
 	defer s.Close()
 	defer c.Close()
 
-	//qry := `CREATE DATABASE db0`
 	qry := `CREATE DATABASE IF NOT EXISTS db0`
 	if res := c.ExecuteStatement(mustParseStatement(qry)); res.Err != nil {
 		t.Fatal(res.Err)
