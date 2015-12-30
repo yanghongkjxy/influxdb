@@ -235,6 +235,106 @@ func TestMetaService_CreateRetentionPolicy(t *testing.T) {
 	}
 }
 
+func TestMetaService_CreateRetentionPolicyIfNotExists(t *testing.T) {
+	t.Parallel()
+
+	d, s, c := newServiceAndClient()
+	defer os.RemoveAll(d)
+	defer s.Close()
+	defer c.Close()
+
+	if res := c.ExecuteStatement(mustParseStatement("CREATE DATABASE db0")); res.Err != nil {
+		t.Fatal(res.Err)
+	}
+
+	db, err := c.Database("db0")
+	if err != nil {
+		t.Fatalf(err.Error())
+	} else if db.Name != "db0" {
+		t.Fatalf("db name wrong: %s", db.Name)
+	}
+
+	rpi := &meta.RetentionPolicyInfo{
+		Name:     "rp0",
+		ReplicaN: 1,
+		Duration: time.Hour,
+	}
+
+	// InfluxQL doesn't support IF NOT EXISTS yet so use the API.
+	rp, err := c.CreateRetentionPolicy("db0", rpi, true)
+
+	if err != nil {
+		t.Fatal(err)
+	} else if rp.Name != "rp0" {
+		t.Fatalf("rp name wrong: %s", rp.Name)
+	} else if rp.Duration != time.Hour {
+		t.Fatalf("rp duration wrong: %s", rp.Duration.String())
+	} else if rp.ReplicaN != 1 {
+		t.Fatalf("rp replication wrong: %d", rp.ReplicaN)
+	}
+
+	// Create the same policy with ifNotExists = true.  Shouldn't error.
+	rp, err = c.CreateRetentionPolicy("db0", rpi, true)
+
+	if err != nil {
+		t.Fatal(err)
+	} else if rp.Name != "rp0" {
+		t.Fatalf("rp name wrong: %s", rp.Name)
+	} else if rp.Duration != time.Hour {
+		t.Fatalf("rp duration wrong: %s", rp.Duration.String())
+	} else if rp.ReplicaN != 1 {
+		t.Fatalf("rp replication wrong: %d", rp.ReplicaN)
+	}
+}
+
+func TestMetaService_DropRetentionPolicy(t *testing.T) {
+	t.Parallel()
+
+	d, s, c := newServiceAndClient()
+	defer os.RemoveAll(d)
+	defer s.Close()
+	defer c.Close()
+
+	if res := c.ExecuteStatement(mustParseStatement("CREATE DATABASE db0")); res.Err != nil {
+		t.Fatal(res.Err)
+	}
+
+	db, err := c.Database("db0")
+	if err != nil {
+		t.Fatalf(err.Error())
+	} else if db.Name != "db0" {
+		t.Fatalf("db name wrong: %s", db.Name)
+	}
+
+	qry := `CREATE RETENTION POLICY rp0 ON db0 DURATION 1h REPLICATION 1`
+	if res := c.ExecuteStatement(mustParseStatement(qry)); res.Err != nil {
+		t.Fatal(res.Err)
+	}
+
+	rp, err := c.RetentionPolicy("db0", "rp0")
+	if err != nil {
+		t.Fatal(err)
+	} else if rp.Name != "rp0" {
+		t.Fatalf("rp name wrong: %s", rp.Name)
+	} else if rp.Duration != time.Hour {
+		t.Fatalf("rp duration wrong: %s", rp.Duration.String())
+	} else if rp.ReplicaN != 1 {
+		t.Fatalf("rp replication wrong: %d", rp.ReplicaN)
+	}
+
+	qry = `DROP RETENTION POLICY rp0 ON db0`
+	if res := c.ExecuteStatement(mustParseStatement(qry)); res.Err != nil {
+		t.Fatal(res.Err)
+	}
+
+	rp, err = c.RetentionPolicy("db0", "rp0")
+	if err != nil {
+		t.Fatal(err)
+	} else if rp != nil {
+		t.Fatalf("rp should have been dropped")
+	}
+}
+
 // newServiceAndClient returns new data directory, *Service, and *Client or panics.
 // Caller is responsible for deleting data dir and closing client.
 func newServiceAndClient() (string, *meta.Service, *meta.Client) {

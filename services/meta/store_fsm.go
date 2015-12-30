@@ -220,7 +220,7 @@ func (fsm *storeFSM) applyCreateRetentionPolicyCommand(cmd *internal.Command) in
 			ReplicaN:           int(pb.GetReplicaN()),
 			Duration:           time.Duration(pb.GetDuration()),
 			ShardGroupDuration: time.Duration(pb.GetShardGroupDuration()),
-		}); err != nil {
+		}, v.GetIfNotExists()); err != nil {
 		return err
 	}
 	fsm.data = other
@@ -234,7 +234,7 @@ func (fsm *storeFSM) applyDropRetentionPolicyCommand(cmd *internal.Command) inte
 
 	// Copy data and update.
 	other := fsm.data.Clone()
-	if err := other.DropRetentionPolicy(v.GetDatabase(), v.GetName()); err != nil {
+	if err := other.DropRetentionPolicy(v.GetDatabase(), v.GetName(), v.GetIfExists()); err != nil {
 		return err
 	}
 	fsm.data = other

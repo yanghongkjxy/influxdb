@@ -110,7 +110,6 @@ func (c *Client) Databases() ([]DatabaseInfo, error) {
 
 // CreateDatabase creates a database.
 func (c *Client) CreateDatabase(name string, ifNotExists bool) (*DatabaseInfo, error) {
-	fmt.Printf("ifNotExists = %v\n", ifNotExists)
 	cmd := &internal.CreateDatabaseCommand{
 		Name:        proto.String(name),
 		IfNotExists: proto.Bool(ifNotExists),
@@ -122,11 +121,6 @@ func (c *Client) CreateDatabase(name string, ifNotExists bool) (*DatabaseInfo, e
 	}
 
 	return c.Database(name)
-}
-
-// CreateDatabaseIfNotExists creates a database if it doesn't already exist.
-func (c *Client) CreateDatabaseIfNotExists(name string) (*DatabaseInfo, error) {
-	return nil, nil
 }
 
 // CreateDatabaseWithRetentionPolicy creates a database with the specified retention policy.
@@ -142,6 +136,7 @@ func (c *Client) CreateDatabaseWithRetentionPolicy(name string, ifNotExists bool
 	cmd := &internal.CreateRetentionPolicyCommand{
 		Database:        proto.String(name),
 		RetentionPolicy: rpi.marshal(),
+		IfNotExists:     proto.Bool(false),
 	}
 
 	if err := c.retryUntilExec(internal.Command_CreateRetentionPolicyCommand, internal.E_CreateRetentionPolicyCommand_Command, cmd); err != nil {
@@ -161,7 +156,7 @@ func (c *Client) DropDatabase(name string) error {
 }
 
 // CreateRetentionPolicy creates a retention policy on the specified database.
-func (c *Client) CreateRetentionPolicy(database string, rpi *RetentionPolicyInfo) (*RetentionPolicyInfo, error) {
+func (c *Client) CreateRetentionPolicy(database string, rpi *RetentionPolicyInfo, ifNotExists bool) (*RetentionPolicyInfo, error) {
 	if rpi.Duration < MinRetentionPolicyDuration && rpi.Duration != 0 {
 		return nil, ErrRetentionPolicyDurationTooLow
 	}
@@ -169,6 +164,7 @@ func (c *Client) CreateRetentionPolicy(database string, rpi *RetentionPolicyInfo
 	cmd := &internal.CreateRetentionPolicyCommand{
 		Database:        proto.String(database),
 		RetentionPolicy: rpi.marshal(),
+		IfNotExists:     proto.Bool(ifNotExists),
 	}
 
 	if err := c.retryUntilExec(internal.Command_CreateRetentionPolicyCommand, internal.E_CreateRetentionPolicyCommand_Command, cmd); err != nil {
@@ -196,12 +192,15 @@ func (c *Client) VisitRetentionPolicies(f func(d DatabaseInfo, r RetentionPolicy
 
 }
 
-func (c *Client) CreateRetentionPolicyIfNotExists(database string, rpi *RetentionPolicyInfo) (*RetentionPolicyInfo, error) {
-	return nil, nil
-}
+// DropRetentionPolicy drops a retention policy from a database.
+func (c *Client) DropRetentionPolicy(database, name string, ifExists bool) error {
+	cmd := &internal.DropRetentionPolicyCommand{
+		Database: proto.String(database),
+		Name:     proto.String(name),
+		IfExists: proto.Bool(ifExists),
+	}
 
-func (c *Client) DropRetentionPolicy(database, name string) error {
-	return nil
+	return c.retryUntilExec(internal.Command_DropRetentionPolicyCommand, internal.E_DropRetentionPolicyCommand_Command, cmd)
 }
 
 func (c *Client) SetDefaultRetentionPolicy(database, name string) error {
@@ -212,10 +211,12 @@ func (c *Client) UpdateRetentionPolicy(database, name string, rpu *RetentionPoli
 	return nil
 }
 
+// IsLeader - should get rid of this
 func (c *Client) IsLeader() bool {
 	return false
 }
 
+// WaitForLeader - should get rid of this
 func (c *Client) WaitForLeader(timeout time.Duration) error {
 	return nil
 }
