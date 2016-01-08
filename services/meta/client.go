@@ -111,10 +111,7 @@ func (c *Client) data() *Data {
 
 // ClusterID returns the ID of the cluster it's connected to.
 func (c *Client) ClusterID() uint64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.data.ClusterID
+	return c.data().ClusterID
 }
 
 // Node returns a node by id.
@@ -143,6 +140,7 @@ func (c *Client) CreateDataNode(httpAddr, tcpAddr string) (*NodeInfo, error) {
 		return nil, err
 	}
 	c.nodeID = ni.ID
+	println(c.nodeID)
 
 	return ni, nil
 }
@@ -857,6 +855,14 @@ func (c *Client) retryUntilExec(typ internal.Command_Type, desc *proto.Extension
 }
 
 func (c *Client) AcquireLease(name string) (*Lease, error) {
+	if l, err := c.data().CheckLease(name, c.nodeID); err != nil || l != nil {
+		println("Client.AcquireLease")
+		println(time.Now().UTC().String())
+		println(l)
+		println(err.Error())
+		return l, err
+	}
+
 	cmd := &internal.AcquireLeaseCommand{
 		Name:   proto.String(name),
 		NodeID: proto.Uint64(c.nodeID),
@@ -870,10 +876,7 @@ func (c *Client) AcquireLease(name string) (*Lease, error) {
 }
 
 func (c *Client) Lease(name string) *Lease {
-	c.mu.RLock()
-	data := c.data
-	c.mu.RUnlock()
-	return data.Lease(name)
+	return c.data().Lease(name)
 }
 
 func (c *Client) exec(url string, typ internal.Command_Type, desc *proto.ExtensionDesc, value interface{}) (index uint64, err error) {

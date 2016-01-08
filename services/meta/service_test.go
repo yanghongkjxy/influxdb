@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/influxdb/influxdb/influxql"
 	"github.com/influxdb/influxdb/services/meta"
 	"github.com/influxdb/influxdb/tcp"
@@ -1044,7 +1045,7 @@ func TestMetaService_PersistClusterIDAfterRestart(t *testing.T) {
 	}
 	defer s.Close()
 
-	c := meta.NewClient([]string{s.HTTPAddr()}, false)
+	c := meta.NewClient(0, []string{s.HTTPAddr()}, false)
 	if err := c.Open(); err != nil {
 		t.Fatal(err.Error())
 	}
@@ -1061,7 +1062,7 @@ func TestMetaService_PersistClusterIDAfterRestart(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
-	c = meta.NewClient([]string{s.HTTPAddr()}, false)
+	c = meta.NewClient(0, []string{s.HTTPAddr()}, false)
 	if err := c.Open(); err != nil {
 		t.Fatal(err.Error())
 	}
@@ -1078,32 +1079,47 @@ func TestMetaService_PersistClusterIDAfterRestart(t *testing.T) {
 func TestMetaService_AcquireLease(t *testing.T) {
 	t.Parallel()
 
-	d, s, c := newServiceAndClient()
+	d, s, c1 := newServiceAndClient()
+	c2 := newClient(s)
 	defer os.RemoveAll(d)
 	defer s.Close()
-	defer c.Close()
+	defer c1.Close()
+	defer c2.Close()
 
-	exp := &meta.NodeInfo{
-		ID:      2,
-		Host:    "foo:8180",
-		TCPHost: "bar:8281",
-	}
-
-	n, err := c.CreateDataNode(exp.Host, exp.TCPHost)
+	n1, err := c1.CreateDataNode("foo1:8180", "bar1:8281")
 	if err != nil {
 		t.Fatal(err.Error())
 	}
 
-	l, err := c.AcquireLease("foo")
+	n2, err := c2.CreateDataNode("foo2:8180", "bar2:8281")
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	l, err := c1.AcquireLease("foo")
 	if err != nil {
 		t.Fatal(err)
 	} else if l == nil {
 		t.Fatal("expected *Lease")
 	} else if l.Name != "foo" {
 		t.Fatalf("lease name wrong: %s", l.Name)
-	} else if l.Owner.ID != n.ID {
-		t.Fatalf("owner ID wrong. exp %d got %d", n.ID, l.Owner.ID)
+	} else if l.Owner.ID != n1.ID {
+		t.Fatalf("owner ID wrong. exp %d got %d", n1.ID, l.Owner.ID)
 	}
+	spew.Dump(l)
+
+	time.Sleep(10)
+	l, err = c2.AcquireLease("foo")
+	if err != nil {
+		t.Fatal(err)
+	} else if l == nil {
+		t.Fatal("expected *Lease")
+	} else if l.Name != "foo" {
+		t.Fatalf("lease name wrong: %s", l.Name)
+	} else if l.Owner.ID != n2.ID {
+		t.Fatalf("owner ID wrong. exp %d got %d", n2.ID, l.Owner.ID)
+	}
+	spew.Dump(l)
 }
 
 // newServiceAndClient returns new data directory, *Service, and *Client or panics.
@@ -1115,12 +1131,17 @@ func newServiceAndClient() (string, *testService, *meta.Client) {
 		panic(err)
 	}
 
+	c := newClient(s)
+
+	return cfg.Dir, s, c
+}
+
+func newClient(s *testService) *meta.Client {
 	c := meta.NewClient(0, []string{s.HTTPAddr()}, false)
 	if err := c.Open(); err != nil {
 		panic(err)
 	}
-
-	return cfg.Dir, s, c
+	return c
 }
 
 func newConfig() *meta.Config {

@@ -710,6 +710,21 @@ func (l *Lease) clone() Lease {
 	return other
 }
 
+func (l *Lease) marshal() *internal.Lease {
+	pb := &internal.Lease{
+		Name:       proto.String(l.Name),
+		Expiration: proto.Int64(MarshalTime(l.Expiration)),
+		Owner:      l.Owner.marshal(),
+	}
+	return pb
+}
+
+func (l *Lease) unmarshal(pb *internal.Lease) {
+	l.Name = pb.GetName()
+	l.Expiration = UnmarshalTime(pb.GetExpiration())
+	l.Owner.unmarshal(pb.GetOwner())
+}
+
 func (data *Data) Lease(name string) *Lease {
 	for i := range data.Leases {
 		if data.Leases[i].Name == name {
@@ -720,6 +735,29 @@ func (data *Data) Lease(name string) *Lease {
 }
 
 func (data *Data) AcquireLease(name string, nodeID uint64) (*Lease, error) {
+	if l, err := data.CheckLease(name, nodeID); err != nil || l != nil {
+		return l, err
+	}
+
+	owner := data.DataNode(nodeID)
+	if owner == nil {
+		if owner = data.MetaNode(nodeID); owner == nil {
+			return nil, errors.New("node not found")
+		}
+	}
+
+	l := Lease{
+		Name:       name,
+		Expiration: time.Now(), //time.Now().Add(2 * time.Second),
+		Owner:      owner.clone(),
+	}
+
+	data.Leases = append(data.Leases, l)
+
+	return &data.Leases[len(data.Leases)-1], nil
+}
+
+func (data *Data) CheckLease(name string, nodeID uint64) (*Lease, error) {
 	owner := data.DataNode(nodeID)
 	if owner == nil {
 		if owner = data.MetaNode(nodeID); owner == nil {
@@ -728,7 +766,7 @@ func (data *Data) AcquireLease(name string, nodeID uint64) (*Lease, error) {
 	}
 
 	if l := data.Lease(name); l != nil {
-		if !time.Now().After(l.Expiration) {
+		if time.Now().After(l.Expiration) {
 			// Lease has expired.
 			data.DeleteLease(name)
 		} else if l.Owner.ID != owner.ID {
@@ -740,15 +778,7 @@ func (data *Data) AcquireLease(name string, nodeID uint64) (*Lease, error) {
 		}
 	}
 
-	l := Lease{
-		Name:       name,
-		Expiration: time.Now().Add(60 * time.Second),
-		Owner:      owner.clone(),
-	}
-
-	data.Leases = append(data.Leases, l)
-
-	return &data.Leases[len(data.Leases)-1], nil
+	return nil, nil
 }
 
 func (data *Data) DeleteLease(name string) {
@@ -840,6 +870,11 @@ func (data *Data) marshal() *internal.Data {
 		pb.Users[i] = data.Users[i].marshal()
 	}
 
+	pb.Leases = make([]*internal.Lease, len(data.Leases))
+	for i := range data.Leases {
+		pb.Leases[i] = data.Leases[i].marshal()
+	}
+
 	return pb
 }
 
@@ -879,6 +914,11 @@ func (data *Data) unmarshal(pb *internal.Data) {
 	data.Users = make([]UserInfo, len(pb.GetUsers()))
 	for i, x := range pb.GetUsers() {
 		data.Users[i].unmarshal(x)
+	}
+
+	data.Leases = make([]Lease, len(pb.GetLeases()))
+	for i, x := range pb.GetLeases() {
+		data.Leases[i].unmarshal(x)
 	}
 }
 

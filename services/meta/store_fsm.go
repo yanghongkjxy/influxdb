@@ -114,6 +114,8 @@ func (fsm *storeFSM) applyAcquireLeaseCommand(cmd *internal.Command) interface{}
 		return err
 	}
 
+	fsm.data = other
+
 	return nil
 }
 

@@ -22,6 +22,7 @@ message Data {
     // added for 0.10.0
     repeated NodeInfo DataNodes = 10;
     repeated NodeInfo MetaNodes = 11;
+    repeated Lease Leases = 12;
 }
 
 message NodeInfo {
@@ -87,6 +88,11 @@ message UserPrivilege {
 	required int32 Privilege = 2;
 }
 
+message Lease {
+        required string Name = 1;
+	required int64 Expiration = 2;
+	required NodeInfo Owner = 3;
+}
 
 //========================================================================
 //

@@ -20,6 +20,7 @@ It has these top-level messages:
 	ContinuousQueryInfo
 	UserInfo
 	UserPrivilege
+	Lease
 	Command
 	CreateNodeCommand
 	DeleteNodeCommand
@@ -190,6 +191,7 @@ type Data struct {
 	// added for 0.10.0
 	DataNodes        []*NodeInfo `protobuf:"bytes,10,rep,name=DataNodes" json:"DataNodes,omitempty"`
 	MetaNodes        []*NodeInfo `protobuf:"bytes,11,rep,name=MetaNodes" json:"MetaNodes,omitempty"`
+	Leases           []*Lease    `protobuf:"bytes,12,rep,name=Leases" json:"Leases,omitempty"`
 	XXX_unrecognized []byte      `json:"-"`
 }
 
@@ -270,6 +272,13 @@ func (m *Data) GetDataNodes() []*NodeInfo {
 func (m *Data) GetMetaNodes() []*NodeInfo {
 	if m != nil {
 		return m.MetaNodes
+	}
+	return nil
+}
+
+func (m *Data) GetLeases() []*Lease {
+	if m != nil {
+		return m.Leases
 	}
 	return nil
 }
@@ -616,6 +625,38 @@ func (m *UserPrivilege) GetPrivilege() int32 {
 		return *m.Privilege
 	}
 	return 0
+}
+
+type Lease struct {
+	Name             *string   `protobuf:"bytes,1,req,name=Name" json:"Name,omitempty"`
+	Expiration       *int64    `protobuf:"varint,2,req,name=Expiration" json:"Expiration,omitempty"`
+	Owner            *NodeInfo `protobuf:"bytes,3,req,name=Owner" json:"Owner,omitempty"`
+	XXX_unrecognized []byte    `json:"-"`
+}
+
+func (m *Lease) Reset()         { *m = Lease{} }
+func (m *Lease) String() string { return proto.CompactTextString(m) }
+func (*Lease) ProtoMessage()    {}
+
+func (m *Lease) GetName() string {
+	if m != nil && m.Name != nil {
+		return *m.Name
+	}
+	return ""
+}
+
+func (m *Lease) GetExpiration() int64 {
+	if m != nil && m.Expiration != nil {
+		return *m.Expiration
+	}
+	return 0
+}
+
+func (m *Lease) GetOwner() *NodeInfo {
+	if m != nil {
+		return m.Owner
+	}
+	return nil
 }
 
 type Command struct {
@@ -1697,6 +1738,7 @@ func init() {
 	proto.RegisterType((*ContinuousQueryInfo)(nil), "internal.ContinuousQueryInfo")
 	proto.RegisterType((*UserInfo)(nil), "internal.UserInfo")
 	proto.RegisterType((*UserPrivilege)(nil), "internal.UserPrivilege")
+	proto.RegisterType((*Lease)(nil), "internal.Lease")
 	proto.RegisterType((*Command)(nil), "internal.Command")
 	proto.RegisterType((*CreateNodeCommand)(nil), "internal.CreateNodeCommand")
 	proto.RegisterType((*DeleteNodeCommand)(nil), "internal.DeleteNodeCommand")
