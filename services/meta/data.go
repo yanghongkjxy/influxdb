@@ -1,6 +1,7 @@
 package meta
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -33,6 +34,7 @@ type Data struct {
 	DataNodes []NodeInfo
 	Databases []DatabaseInfo
 	Users     []UserInfo
+	Leases    []Lease
 
 	MaxNodeID       uint64
 	MaxShardGroupID uint64
@@ -696,6 +698,70 @@ func (data *Data) UserPrivilege(name, database string) (*influxql.Privilege, err
 	return influxql.NewPrivilege(influxql.NoPrivileges), nil
 }
 
+type Lease struct {
+	Name       string
+	Expiration time.Time
+	Owner      NodeInfo
+}
+
+func (l *Lease) clone() Lease {
+	other := *l
+	other.Owner = l.Owner.clone()
+	return other
+}
+
+func (data *Data) Lease(name string) *Lease {
+	for i := range data.Leases {
+		if data.Leases[i].Name == name {
+			return &data.Leases[i]
+		}
+	}
+	return nil
+}
+
+func (data *Data) AcquireLease(name string, nodeID uint64) (*Lease, error) {
+	owner := data.DataNode(nodeID)
+	if owner == nil {
+		if owner = data.MetaNode(nodeID); owner == nil {
+			return nil, errors.New("node not found")
+		}
+	}
+
+	if l := data.Lease(name); l != nil {
+		if !time.Now().After(l.Expiration) {
+			// Lease has expired.
+			data.DeleteLease(name)
+		} else if l.Owner.ID != owner.ID {
+			// Lease is owned by another node and hasn't expired.
+			return nil, errors.New("lease not available")
+		} else {
+			// Caller already has the lease.
+			return l, nil
+		}
+	}
+
+	l := Lease{
+		Name:       name,
+		Expiration: time.Now().Add(60 * time.Second),
+		Owner:      owner.clone(),
+	}
+
+	data.Leases = append(data.Leases, l)
+
+	return &data.Leases[len(data.Leases)-1], nil
+}
+
+func (data *Data) DeleteLease(name string) {
+	n := len(data.Leases) - 1
+	for i := range data.Leases {
+		if data.Leases[i].Name == name {
+			// Delete without preserving order.
+			data.Leases[i] = data.Leases[n]
+			data.Leases = data.Leases[:n]
+		}
+	}
+}
+
 // Clone returns a copy of data with a new version.
 func (data *Data) Clone() *Data {
 	other := *data
@@ -728,6 +794,14 @@ func (data *Data) Clone() *Data {
 		other.Users = make([]UserInfo, len(data.Users))
 		for i := range data.Users {
 			other.Users[i] = data.Users[i].clone()
+		}
+	}
+
+	// Copy Leases.
+	if data.Leases != nil {
+		other.Leases = make([]Lease, len(data.Leases))
+		for i := range data.Leases {
+			other.Leases[i] = data.Leases[i].clone()
 		}
 	}
 

@@ -601,7 +601,7 @@ func (s *Server) monitorErrorChan(ch <-chan error) {
 func (s *Server) initializeDataNode() error {
 	// if the node ID is > 0 then we just need to initialize the metaclient
 	if s.Node.ID > 0 {
-		s.MetaClient = meta.NewClient(s.Node.MetaServers, s.metaUseTLS)
+		s.MetaClient = meta.NewClient(s.Node.ID, s.Node.MetaServers, s.metaUseTLS)
 		if err := s.MetaClient.Open(); err != nil {
 			return err
 		}
@@ -618,10 +618,10 @@ func (s *Server) initializeDataNode() error {
 		if s.MetaService == nil {
 			return fmt.Errorf("server not set to join existing cluster must run also as a meta node")
 		}
-		s.MetaClient = meta.NewClient([]string{s.MetaService.HTTPAddr()}, s.metaUseTLS)
+		s.MetaClient = meta.NewClient(0, []string{s.MetaService.HTTPAddr()}, s.metaUseTLS)
 	} else {
 		// join this data node to the cluster
-		s.MetaClient = meta.NewClient(s.joinPeers, s.metaUseTLS)
+		s.MetaClient = meta.NewClient(0, s.joinPeers, s.metaUseTLS)
 	}
 	if err := s.MetaClient.Open(); err != nil {
 		return err

@@ -42,6 +42,7 @@ const (
 type Client struct {
 	tls    bool
 	logger *log.Logger
+	nodeID uint64
 
 	mu          sync.RWMutex
 	metaServers []string
@@ -60,9 +61,10 @@ type Client struct {
 }
 
 // NewClient returns a new *Client.
-func NewClient(metaServers []string, tls bool) *Client {
+func NewClient(nodeID uint64, metaServers []string, tls bool) *Client {
 	client := &Client{
 		cacheData:   &Data{},
+		nodeID:      nodeID,
 		metaServers: metaServers,
 		tls:         tls,
 		logger:      log.New(os.Stderr, "[metaclient] ", log.LstdFlags),
@@ -136,7 +138,13 @@ func (c *Client) CreateDataNode(httpAddr, tcpAddr string) (*NodeInfo, error) {
 		return nil, err
 	}
 
-	return c.DataNodeByHTTPHost(httpAddr)
+	ni, err := c.DataNodeByHTTPHost(httpAddr)
+	if err != nil {
+		return nil, err
+	}
+	c.nodeID = ni.ID
+
+	return ni, nil
 }
 
 // DataNodeByHTTPHost returns the data node with the give http bind address
@@ -694,14 +702,23 @@ func (c *Client) JoinMetaServer(httpAddr, tcpAddr string) error {
 	}
 }
 
-func (c *Client) CreateMetaNode(httpAddr, tcpAddr string) error {
+func (c *Client) CreateMetaNode(httpAddr, tcpAddr string) (*NodeInfo, error) {
 	cmd := &internal.CreateMetaNodeCommand{
 		HTTPAddr: proto.String(httpAddr),
 		TCPAddr:  proto.String(tcpAddr),
 		Rand:     proto.Uint64(uint64(rand.Int63())),
 	}
 
-	return c.retryUntilExec(internal.Command_CreateMetaNodeCommand, internal.E_CreateMetaNodeCommand_Command, cmd)
+	if err := c.retryUntilExec(internal.Command_CreateMetaNodeCommand, internal.E_CreateMetaNodeCommand_Command, cmd); err != nil {
+		return nil, err
+	}
+
+	ni := c.MetaNodeByAddr(httpAddr)
+	if ni != nil {
+		c.nodeID = ni.ID
+	}
+
+	return ni, nil
 }
 
 func (c *Client) DeleteMetaNode(id uint64) error {
@@ -837,6 +854,26 @@ func (c *Client) retryUntilExec(typ internal.Command_Type, desc *proto.Extension
 
 		time.Sleep(errSleep)
 	}
+}
+
+func (c *Client) AcquireLease(name string) (*Lease, error) {
+	cmd := &internal.AcquireLeaseCommand{
+		Name:   proto.String(name),
+		NodeID: proto.Uint64(c.nodeID),
+	}
+
+	if err := c.retryUntilExec(internal.Command_AcquireLeaseCommand, internal.E_AcquireLeaseCommand_Command, cmd); err != nil {
+		return nil, err
+	}
+
+	return c.Lease(name), nil
+}
+
+func (c *Client) Lease(name string) *Lease {
+	c.mu.RLock()
+	data := c.data
+	c.mu.RUnlock()
+	return data.Lease(name)
 }
 
 func (c *Client) exec(url string, typ internal.Command_Type, desc *proto.ExtensionDesc, value interface{}) (index uint64, err error) {

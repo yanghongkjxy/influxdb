@@ -746,7 +746,7 @@ func TestMetaService_CreateRemoveMetaNode(t *testing.T) {
 		}
 		defer s3.Close()
 
-		c1 := meta.NewClient([]string{s1.HTTPAddr()}, false)
+		c1 := meta.NewClient(0, []string{s1.HTTPAddr()}, false)
 		if err := c1.Open(); err != nil {
 			t.Fatal(err.Error())
 		}
@@ -758,7 +758,7 @@ func TestMetaService_CreateRemoveMetaNode(t *testing.T) {
 		}
 	}()
 
-	c := meta.NewClient([]string{s1.HTTPAddr()}, false)
+	c := meta.NewClient(0, []string{s1.HTTPAddr()}, false)
 	if err := c.Open(); err != nil {
 		t.Fatal(err.Error())
 	}
@@ -810,7 +810,7 @@ func TestMetaService_CommandAgainstNonLeader(t *testing.T) {
 		defer os.RemoveAll(c.Dir)
 	}
 
-	c := meta.NewClient([]string{srvs[2].HTTPAddr()}, false)
+	c := meta.NewClient(0, []string{srvs[2].HTTPAddr()}, false)
 	if err := c.Open(); err != nil {
 		t.Fatal(err.Error())
 	}
@@ -856,7 +856,7 @@ func TestMetaService_FailureAndRestartCluster(t *testing.T) {
 		defer os.RemoveAll(c.Dir)
 	}
 
-	c := meta.NewClient([]string{srvs[0].HTTPAddr(), srvs[1].HTTPAddr()}, false)
+	c := meta.NewClient(0, []string{srvs[0].HTTPAddr(), srvs[1].HTTPAddr()}, false)
 	if err := c.Open(); err != nil {
 		t.Fatal(err.Error())
 	}
@@ -915,7 +915,7 @@ func TestMetaService_FailureAndRestartCluster(t *testing.T) {
 	wg.Wait()
 	time.Sleep(time.Second)
 
-	c2 := meta.NewClient([]string{srvs[0].HTTPAddr()}, false)
+	c2 := meta.NewClient(0, []string{srvs[0].HTTPAddr()}, false)
 	if err := c2.Open(); err != nil {
 		t.Fatal(err)
 	}
@@ -956,7 +956,7 @@ func TestMetaService_NameChangeSingleNode(t *testing.T) {
 	}
 	defer s.Close()
 
-	c := meta.NewClient([]string{s.HTTPAddr()}, false)
+	c := meta.NewClient(0, []string{s.HTTPAddr()}, false)
 	if err := c.Open(); err != nil {
 		t.Fatal(err.Error())
 	}
@@ -977,7 +977,7 @@ func TestMetaService_NameChangeSingleNode(t *testing.T) {
 	}
 	defer s.Close()
 
-	c2 := meta.NewClient([]string{s.HTTPAddr()}, false)
+	c2 := meta.NewClient(0, []string{s.HTTPAddr()}, false)
 	if err := c2.Open(); err != nil {
 		t.Fatal(err.Error())
 	}
@@ -1075,6 +1075,37 @@ func TestMetaService_PersistClusterIDAfterRestart(t *testing.T) {
 	}
 }
 
+func TestMetaService_AcquireLease(t *testing.T) {
+	t.Parallel()
+
+	d, s, c := newServiceAndClient()
+	defer os.RemoveAll(d)
+	defer s.Close()
+	defer c.Close()
+
+	exp := &meta.NodeInfo{
+		ID:      2,
+		Host:    "foo:8180",
+		TCPHost: "bar:8281",
+	}
+
+	n, err := c.CreateDataNode(exp.Host, exp.TCPHost)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	l, err := c.AcquireLease("foo")
+	if err != nil {
+		t.Fatal(err)
+	} else if l == nil {
+		t.Fatal("expected *Lease")
+	} else if l.Name != "foo" {
+		t.Fatalf("lease name wrong: %s", l.Name)
+	} else if l.Owner.ID != n.ID {
+		t.Fatalf("owner ID wrong. exp %d got %d", n.ID, l.Owner.ID)
+	}
+}
+
 // newServiceAndClient returns new data directory, *Service, and *Client or panics.
 // Caller is responsible for deleting data dir and closing client.
 func newServiceAndClient() (string, *testService, *meta.Client) {
@@ -1084,7 +1115,7 @@ func newServiceAndClient() (string, *testService, *meta.Client) {
 		panic(err)
 	}
 
-	c := meta.NewClient([]string{s.HTTPAddr()}, false)
+	c := meta.NewClient(0, []string{s.HTTPAddr()}, false)
 	if err := c.Open(); err != nil {
 		panic(err)
 	}

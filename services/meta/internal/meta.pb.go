@@ -48,8 +48,9 @@ It has these top-level messages:
 	UpdateDataNodeCommand
 	DeleteMetaNodeCommand
 	DeleteDataNodeCommand
-	Response
 	SetMetaNodeCommand
+	AcquireLeaseCommand
+	Response
 */
 package internal
 
@@ -93,6 +94,7 @@ const (
 	Command_DeleteMetaNodeCommand            Command_Type = 27
 	Command_DeleteDataNodeCommand            Command_Type = 28
 	Command_SetMetaNodeCommand               Command_Type = 29
+	Command_AcquireLeaseCommand              Command_Type = 30
 )
 
 var Command_Type_name = map[int32]string{
@@ -124,6 +126,7 @@ var Command_Type_name = map[int32]string{
 	27: "DeleteMetaNodeCommand",
 	28: "DeleteDataNodeCommand",
 	29: "SetMetaNodeCommand",
+	30: "AcquireLeaseCommand",
 }
 var Command_Type_value = map[string]int32{
 	"CreateNodeCommand":                1,
@@ -154,6 +157,7 @@ var Command_Type_value = map[string]int32{
 	"DeleteMetaNodeCommand":            27,
 	"DeleteDataNodeCommand":            28,
 	"SetMetaNodeCommand":               29,
+	"AcquireLeaseCommand":              30,
 }
 
 func (x Command_Type) Enum() *Command_Type {
@@ -174,18 +178,19 @@ func (x *Command_Type) UnmarshalJSON(data []byte) error {
 }
 
 type Data struct {
-	Term             *uint64         `protobuf:"varint,1,req,name=Term" json:"Term,omitempty"`
-	Index            *uint64         `protobuf:"varint,2,req,name=Index" json:"Index,omitempty"`
-	ClusterID        *uint64         `protobuf:"varint,3,req,name=ClusterID" json:"ClusterID,omitempty"`
-	Nodes            []*NodeInfo     `protobuf:"bytes,4,rep,name=Nodes" json:"Nodes,omitempty"`
-	Databases        []*DatabaseInfo `protobuf:"bytes,5,rep,name=Databases" json:"Databases,omitempty"`
-	Users            []*UserInfo     `protobuf:"bytes,6,rep,name=Users" json:"Users,omitempty"`
-	MaxNodeID        *uint64         `protobuf:"varint,7,req,name=MaxNodeID" json:"MaxNodeID,omitempty"`
-	MaxShardGroupID  *uint64         `protobuf:"varint,8,req,name=MaxShardGroupID" json:"MaxShardGroupID,omitempty"`
-	MaxShardID       *uint64         `protobuf:"varint,9,req,name=MaxShardID" json:"MaxShardID,omitempty"`
-	DataNodes        []*NodeInfo     `protobuf:"bytes,10,rep,name=DataNodes" json:"DataNodes,omitempty"`
-	MetaNodes        []*NodeInfo     `protobuf:"bytes,11,rep,name=MetaNodes" json:"MetaNodes,omitempty"`
-	XXX_unrecognized []byte          `json:"-"`
+	Term            *uint64         `protobuf:"varint,1,req,name=Term" json:"Term,omitempty"`
+	Index           *uint64         `protobuf:"varint,2,req,name=Index" json:"Index,omitempty"`
+	ClusterID       *uint64         `protobuf:"varint,3,req,name=ClusterID" json:"ClusterID,omitempty"`
+	Nodes           []*NodeInfo     `protobuf:"bytes,4,rep,name=Nodes" json:"Nodes,omitempty"`
+	Databases       []*DatabaseInfo `protobuf:"bytes,5,rep,name=Databases" json:"Databases,omitempty"`
+	Users           []*UserInfo     `protobuf:"bytes,6,rep,name=Users" json:"Users,omitempty"`
+	MaxNodeID       *uint64         `protobuf:"varint,7,req,name=MaxNodeID" json:"MaxNodeID,omitempty"`
+	MaxShardGroupID *uint64         `protobuf:"varint,8,req,name=MaxShardGroupID" json:"MaxShardGroupID,omitempty"`
+	MaxShardID      *uint64         `protobuf:"varint,9,req,name=MaxShardID" json:"MaxShardID,omitempty"`
+	// added for 0.10.0
+	DataNodes        []*NodeInfo `protobuf:"bytes,10,rep,name=DataNodes" json:"DataNodes,omitempty"`
+	MetaNodes        []*NodeInfo `protobuf:"bytes,11,rep,name=MetaNodes" json:"MetaNodes,omitempty"`
+	XXX_unrecognized []byte      `json:"-"`
 }
 
 func (m *Data) Reset()         { *m = Data{} }
@@ -644,6 +649,8 @@ func (m *Command) GetType() Command_Type {
 	return Command_CreateNodeCommand
 }
 
+// This isn't used in >= 0.10.0. Kept around for upgrade purposes. Instead
+// look at CreateDataNodeCommand and CreateMetaNodeCommand
 type CreateNodeCommand struct {
 	Host             *string `protobuf:"bytes,1,req,name=Host" json:"Host,omitempty"`
 	Rand             *uint64 `protobuf:"varint,2,req,name=Rand" json:"Rand,omitempty"`
@@ -1572,38 +1579,8 @@ var E_DeleteDataNodeCommand_Command = &proto.ExtensionDesc{
 	Tag:           "bytes,128,opt,name=command",
 }
 
-type Response struct {
-	OK               *bool   `protobuf:"varint,1,req,name=OK" json:"OK,omitempty"`
-	Error            *string `protobuf:"bytes,2,opt,name=Error" json:"Error,omitempty"`
-	Index            *uint64 `protobuf:"varint,3,opt,name=Index" json:"Index,omitempty"`
-	XXX_unrecognized []byte  `json:"-"`
-}
-
-func (m *Response) Reset()         { *m = Response{} }
-func (m *Response) String() string { return proto.CompactTextString(m) }
-func (*Response) ProtoMessage()    {}
-
-func (m *Response) GetOK() bool {
-	if m != nil && m.OK != nil {
-		return *m.OK
-	}
-	return false
-}
-
-func (m *Response) GetError() string {
-	if m != nil && m.Error != nil {
-		return *m.Error
-	}
-	return ""
-}
-
-func (m *Response) GetIndex() uint64 {
-	if m != nil && m.Index != nil {
-		return *m.Index
-	}
-	return 0
-}
-
+// SetMetaNodeCommand is for the initial metanode in a cluster or
+// if the single host restarts and its hostname changes, this will update it
 type SetMetaNodeCommand struct {
 	HTTPAddr         *string `protobuf:"bytes,1,req,name=HTTPAddr" json:"HTTPAddr,omitempty"`
 	TCPAddr          *string `protobuf:"bytes,2,req,name=TCPAddr" json:"TCPAddr,omitempty"`
@@ -1642,6 +1619,70 @@ var E_SetMetaNodeCommand_Command = &proto.ExtensionDesc{
 	Field:         129,
 	Name:          "internal.SetMetaNodeCommand.command",
 	Tag:           "bytes,129,opt,name=command",
+}
+
+type AcquireLeaseCommand struct {
+	Name             *string `protobuf:"bytes,1,req,name=Name" json:"Name,omitempty"`
+	NodeID           *uint64 `protobuf:"varint,2,req,name=NodeID" json:"NodeID,omitempty"`
+	XXX_unrecognized []byte  `json:"-"`
+}
+
+func (m *AcquireLeaseCommand) Reset()         { *m = AcquireLeaseCommand{} }
+func (m *AcquireLeaseCommand) String() string { return proto.CompactTextString(m) }
+func (*AcquireLeaseCommand) ProtoMessage()    {}
+
+func (m *AcquireLeaseCommand) GetName() string {
+	if m != nil && m.Name != nil {
+		return *m.Name
+	}
+	return ""
+}
+
+func (m *AcquireLeaseCommand) GetNodeID() uint64 {
+	if m != nil && m.NodeID != nil {
+		return *m.NodeID
+	}
+	return 0
+}
+
+var E_AcquireLeaseCommand_Command = &proto.ExtensionDesc{
+	ExtendedType:  (*Command)(nil),
+	ExtensionType: (*AcquireLeaseCommand)(nil),
+	Field:         130,
+	Name:          "internal.AcquireLeaseCommand.command",
+	Tag:           "bytes,130,opt,name=command",
+}
+
+type Response struct {
+	OK               *bool   `protobuf:"varint,1,req,name=OK" json:"OK,omitempty"`
+	Error            *string `protobuf:"bytes,2,opt,name=Error" json:"Error,omitempty"`
+	Index            *uint64 `protobuf:"varint,3,opt,name=Index" json:"Index,omitempty"`
+	XXX_unrecognized []byte  `json:"-"`
+}
+
+func (m *Response) Reset()         { *m = Response{} }
+func (m *Response) String() string { return proto.CompactTextString(m) }
+func (*Response) ProtoMessage()    {}
+
+func (m *Response) GetOK() bool {
+	if m != nil && m.OK != nil {
+		return *m.OK
+	}
+	return false
+}
+
+func (m *Response) GetError() string {
+	if m != nil && m.Error != nil {
+		return *m.Error
+	}
+	return ""
+}
+
+func (m *Response) GetIndex() uint64 {
+	if m != nil && m.Index != nil {
+		return *m.Index
+	}
+	return 0
 }
 
 func init() {
@@ -1684,8 +1725,9 @@ func init() {
 	proto.RegisterType((*UpdateDataNodeCommand)(nil), "internal.UpdateDataNodeCommand")
 	proto.RegisterType((*DeleteMetaNodeCommand)(nil), "internal.DeleteMetaNodeCommand")
 	proto.RegisterType((*DeleteDataNodeCommand)(nil), "internal.DeleteDataNodeCommand")
-	proto.RegisterType((*Response)(nil), "internal.Response")
 	proto.RegisterType((*SetMetaNodeCommand)(nil), "internal.SetMetaNodeCommand")
+	proto.RegisterType((*AcquireLeaseCommand)(nil), "internal.AcquireLeaseCommand")
+	proto.RegisterType((*Response)(nil), "internal.Response")
 	proto.RegisterEnum("internal.Command_Type", Command_Type_name, Command_Type_value)
 	proto.RegisterExtension(E_CreateNodeCommand_Command)
 	proto.RegisterExtension(E_DeleteNodeCommand_Command)
@@ -1715,4 +1757,5 @@ func init() {
 	proto.RegisterExtension(E_DeleteMetaNodeCommand_Command)
 	proto.RegisterExtension(E_DeleteDataNodeCommand_Command)
 	proto.RegisterExtension(E_SetMetaNodeCommand_Command)
+	proto.RegisterExtension(E_AcquireLeaseCommand_Command)
 }

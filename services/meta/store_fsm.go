@@ -86,6 +86,8 @@ func (fsm *storeFSM) Apply(l *raft.Log) interface{} {
 			return fsm.applySetMetaNodeCommand(&cmd)
 		case internal.Command_CreateDataNodeCommand:
 			return fsm.applyCreateDataNodeCommand(&cmd)
+		case internal.Command_AcquireLeaseCommand:
+			return fsm.applyAcquireLeaseCommand(&cmd)
 		default:
 			panic(fmt.Errorf("cannot apply command: %x", l.Data))
 		}
@@ -100,6 +102,19 @@ func (fsm *storeFSM) Apply(l *raft.Log) interface{} {
 	s.dataChanged = make(chan struct{})
 
 	return err
+}
+
+func (fsm *storeFSM) applyAcquireLeaseCommand(cmd *internal.Command) interface{} {
+	ext, _ := proto.GetExtension(cmd, internal.E_AcquireLeaseCommand_Command)
+	v := ext.(*internal.AcquireLeaseCommand)
+
+	other := fsm.data.Clone()
+
+	if _, err := other.AcquireLease(v.GetName(), v.GetNodeID()); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (fsm *storeFSM) applyRemovePeerCommand(cmd *internal.Command) interface{} {
