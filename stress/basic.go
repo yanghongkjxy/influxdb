@@ -484,7 +484,7 @@ func (b *BasicQueryClient) Exec(qs <-chan Query, r chan<- response) error {
 
 // resetDB will drop an create a new database on an existing
 // InfluxDB instance.
-func resetDB(c client.Client, database string) error {
+func dropDB(c client.Client, database string) error {
 	_, err := c.Query(client.Query{
 		// Change to DROP DATABASE %s IF EXISTS
 		Command: fmt.Sprintf("DROP DATABASE %s", database),
@@ -493,7 +493,11 @@ func resetDB(c client.Client, database string) error {
 		return err
 	}
 
-	_, err = c.Query(client.Query{
+	return nil
+}
+
+func createDB(c client.Client, database string) error {
+	_, err := c.Query(client.Query{
 		Command: fmt.Sprintf("CREATE DATABASE %s", database),
 	})
 	if err != nil {
@@ -527,8 +531,10 @@ func (b *BasicProvisioner) Provision() error {
 	}
 
 	if b.ResetDatabase {
-		resetDB(cl, b.Database)
+		dropDB(cl, b.Database)
 	}
+
+	createDB(cl, b.Database)
 
 	return nil
 }
