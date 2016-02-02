@@ -388,6 +388,10 @@ func (s *Server) Open() error {
 			go s.monitorErrorChan(s.MetaService.Err())
 		}
 
+		if err := s.initializeMetaClient(); err != nil {
+			return err
+		}
+
 		if s.TSDBStore != nil {
 			if err := s.initializeDataNode(); err != nil {
 				return err
@@ -458,6 +462,8 @@ func (s *Server) Open() error {
 					return fmt.Errorf("open service: %s", err)
 				}
 			}
+		} else {
+			s.MetaClient = meta.NewClient(s.Node.MetaServers, s.metaUseTLS)
 		}
 
 		// Start the reporting service, if not disabled.
@@ -603,9 +609,8 @@ func (s *Server) monitorErrorChan(ch <-chan error) {
 	}
 }
 
-// initializeDataNode will set the MetaClient and join the node to the cluster if needed
-func (s *Server) initializeDataNode() error {
-	// if the node ID is > 0 then we just need to initialize the metaclient
+// initializeMetaClient creates a metaclient for the server to use.
+func (s *Server) initializeMetaClient() error {
 	if s.Node.ID > 0 {
 		s.MetaClient = meta.NewClient(s.Node.MetaServers, s.metaUseTLS)
 		if err := s.MetaClient.Open(); err != nil {
@@ -629,9 +634,19 @@ func (s *Server) initializeDataNode() error {
 		// join this data node to the cluster
 		s.MetaClient = meta.NewClient(s.joinPeers, s.metaUseTLS)
 	}
-	if err := s.MetaClient.Open(); err != nil {
-		return err
+
+	return s.MetaClient.Open()
+}
+
+// initializeDataNode will set the MetaClient and join the node to the cluster if needed
+func (s *Server) initializeDataNode() error {
+	// If the node ID is > 0 then we don't need to do anything.
+	if s.Node.ID > 0 {
+		return nil
 	}
+
+	// It's the first time starting up and we need to either join
+	// the cluster or initialize this node as the first member
 	n, err := s.MetaClient.CreateDataNode(s.httpAPIAddr, s.tcpAddr)
 	if err != nil {
 		return err
@@ -647,8 +662,6 @@ func (s *Server) initializeDataNode() error {
 	if err := s.Node.Save(); err != nil {
 		return err
 	}
-
-	go s.updateMetaNodeInformation()
 
 	return nil
 }
