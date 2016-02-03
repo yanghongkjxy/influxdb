@@ -18,6 +18,7 @@ type Profile struct {
 func (p *Profile) Run() {
 	for _, q := range p.Queries {
 		q.Exec(p.Client)
+		q.Report()
 	}
 }
 
@@ -91,6 +92,18 @@ func (q *Query) StdDev() time.Duration {
 	return time.Duration(math.Sqrt(float64(total / time.Duration(len(q.responses)))))
 }
 
+func (q *Query) Report() {
+	fmt.Println(q.Statement)
+	fmt.Printf("Average Reponse Time: %v\n", q.Mean())
+	fmt.Printf("Standard Deviation: %v\n", q.StdDev())
+	fmt.Printf("Median Reponse Time: %v\n", q.Median())
+
+	if q.PointCount != 0 {
+		fmt.Printf("Point Per Second: %v\n", int(float64(q.PointCount)/q.Mean().Seconds()))
+	}
+	fmt.Println()
+}
+
 func main() {
 	p, err := NewProfile("example/template.toml")
 	defer p.Close()
@@ -99,18 +112,6 @@ func main() {
 	}
 
 	p.Run()
-
-	for _, q := range p.Queries {
-		fmt.Println(q.Statement)
-		fmt.Printf("Average Reponse Time: %v\n", q.Mean())
-		fmt.Printf("Standard Deviation: %v\n", q.StdDev())
-		fmt.Printf("Median Reponse Time: %v\n", q.Median())
-
-		if q.PointCount != 0 {
-			fmt.Printf("Point Per Second: %v\n", int(float64(q.PointCount)/q.Mean().Seconds()))
-		}
-		fmt.Println()
-	}
 
 	//
 	//		t := time.Now()
