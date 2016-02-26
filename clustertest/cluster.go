@@ -28,8 +28,8 @@ type Cluster interface {
 	// Start initialises the cluster.
 	Start() error
 
-	// Close releases any necessary resources.
-	Close() error
+	// Stop releases any necessary resources.
+	Stop() error
 
 	// RunAll runs the provided query on all data nodes in the cluster.
 	RunAll(cmd string, database string) <-chan queryResponse
@@ -260,8 +260,8 @@ func (c *local) mapServers(timeout time.Duration) error {
 	}
 }
 
-// Close terminates all influxd processes started by the suite.
-func (c *local) Close() error {
+// Stop terminates all influxd processes started by the suite.
+func (c *local) Stop() error {
 	c.logger.Print("Killing influxd processes")
 	for _, cmd := range c.cmds {
 		if err := cmd.Process.Signal(os.Interrupt); err != nil {

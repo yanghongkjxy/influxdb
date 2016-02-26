@@ -31,19 +31,19 @@ func TestMain(m *testing.M) {
 	}
 
 	if err := clst.Start(); err != nil {
-		clst.Close()
+		clst.Stop()
 		panic(err)
 	}
 
 	code := m.Run()
-	clst.Close()
+	clst.Stop()
 	os.Exit(code)
 }
 
 func checkPanic(t *testing.T) {
 	if r := recover(); r != nil {
 		t.Logf("Panic in test detected: %v", r)
-		clst.Close()
+		clst.Stop()
 	}
 }
 
