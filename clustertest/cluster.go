@@ -13,8 +13,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/influxdata/influxdb/client/v2"
-	"github.com/influxdata/influxdb/services/httpd"
 
+	"github.com/influxdata/influxdb/services/httpd"
 	"github.com/influxdata/influxdb/services/meta"
 
 	"github.com/influxdata/influxdb/cmd/influxd/run"
@@ -106,7 +106,6 @@ func newlocal(hybridN, metaN, dataN int, binPath string) (*local, error) {
 		metaN:        hybridN + metaN,
 		dataN:        hybridN + dataN,
 		nodeConfs:    make(map[string]*run.Config),
-		entryAddr:    "localhost" + mustShiftPort(httpd.DefaultBindAddress, portJump),
 		queryTimeout: 10 * time.Second,
 		clients:      make(map[int]client.Client),
 		logger:       log.New(os.Stdout, "", log.LstdFlags),
@@ -123,29 +122,39 @@ func newlocal(hybridN, metaN, dataN int, binPath string) (*local, error) {
 	joinArg := generateJoinArg(metaN+hybridN, mustptoi(meta.DefaultHTTPBindAddress))
 
 	// TODO(edd): DRY these loops up.
+	var firstNode int
 	for i := 1; i <= hybridN; i++ {
+		if firstNode == 0 {
+			// specify first data node so we can calculate entry port
+			firstNode = i
+		}
 		nodePath := path.Join(c.baseDir, fmt.Sprintf("n%d", i))
 		conf := newConfig(nodePath, i, "hybrid")
 		conf.Join = joinArg
 		c.nodeConfs[path.Join(nodePath, "config.toml")] = conf
 	}
 
-	for i := 1; i <= dataN; i++ {
-		id := i + hybridN
-		nodePath := path.Join(c.baseDir, fmt.Sprintf("n%d", id))
-		conf := newConfig(nodePath, id, "data")
-		conf.Join = joinArg
-		c.nodeConfs[path.Join(nodePath, "config.toml")] = conf
-	}
-
 	for i := 1; i <= metaN; i++ {
-		id := i + hybridN + dataN
+		id := i + hybridN
 		nodePath := path.Join(c.baseDir, fmt.Sprintf("n%d", id))
 		conf := newConfig(nodePath, id, "meta")
 		conf.Join = joinArg
 		c.nodeConfs[path.Join(nodePath, "config.toml")] = conf
 	}
 
+	for i := 1; i <= dataN; i++ {
+		id := i + hybridN + metaN
+		if firstNode == 0 {
+			// specify first data node so we can calculate entry port
+			firstNode = id
+		}
+		nodePath := path.Join(c.baseDir, fmt.Sprintf("n%d", id))
+		conf := newConfig(nodePath, id, "data")
+		conf.Join = joinArg
+		c.nodeConfs[path.Join(nodePath, "config.toml")] = conf
+	}
+
+	c.entryAddr = "localhost" + mustShiftPort(httpd.DefaultBindAddress, firstNode*portJump)
 	// Write out config files
 	for pth, conf := range c.nodeConfs {
 		// Generate the directories.

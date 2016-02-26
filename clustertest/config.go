@@ -22,8 +22,12 @@ func newConfig(basePth string, i int, nt string) *run.Config {
 	// General configuration.
 	c.ReportingDisabled = true
 	c.Meta.Enabled, c.Data.Enabled = false, false // enable these as we need them
-	c.HintedHandoff.Enabled = false
+	c.Monitor.StoreEnabled = false
+	c.HintedHandoff.Enabled = false // Currently not supported in tests.
 	c.BindAddress = mustShiftPort(meta.DefaultRaftBindAddress, portDelta)
+
+	// All nodes need a meta directory..
+	c.Meta.Dir = filepath.Join(basePth, ".influxdb/meta")
 
 	switch nt {
 	case "meta":
@@ -43,8 +47,6 @@ func newConfig(basePth string, i int, nt string) *run.Config {
 // configuration file.
 func configureMetaNode(basePth string, portDelta int, c *run.Config) {
 	c.Meta.Enabled = true
-	// Configure directories.
-	c.Meta.Dir = filepath.Join(basePth, ".influxdb/meta")
 
 	// Configure ports.
 	c.Meta.BindAddress = mustShiftPort(meta.DefaultRaftBindAddress, portDelta)
@@ -55,6 +57,7 @@ func configureMetaNode(basePth string, portDelta int, c *run.Config) {
 // configuration file.
 func configureDataNode(basePth string, portDelta int, c *run.Config) {
 	c.Data.Enabled = true
+	c.Monitor.StoreEnabled = true
 	// Configure directories.
 	c.Data.Dir = filepath.Join(basePth, ".influxdb/data")
 	c.Data.WALDir = filepath.Join(basePth, ".influxdb/wal")
