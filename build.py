@@ -48,7 +48,7 @@ VENDOR = "InfluxData"
 DESCRIPTION = "Distributed time-series database."
 
 prereqs = [ 'git', 'go', 'gdm' ]
-go_vet_command = ["go", "tool", "vet", "-composites=true", "./"]
+go_vet_command = "go tool vet -composites=true ./"
 optional_prereqs = [ 'gvm', 'fpm', 'rpmbuild' ]
 
 fpm_common_args = "-f -s dir --log error \
@@ -143,6 +143,7 @@ def run(command, allow_failure=False, shell=False):
     out = None
     if debug:
         print "[DEBUG] {}".format(command)
+        sys.stdout.flush()
     try:
         if shell:
             out = subprocess.check_output(command, stderr=subprocess.STDOUT, shell=shell)
@@ -329,12 +330,10 @@ def run_tests(race, parallel, timeout, no_vet, tags=[]):
     if timeout is not None:
         print "\tTimeout:", timeout
     sys.stdout.flush()
-    p = subprocess.Popen(["go", "fmt", "./..."], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    out, err = p.communicate()
-    if len(out) > 0 or len(err) > 0:
+    out = run("go fmt ./...")
+    if len(out) > 0:
         print "Code not formatted. Please use 'go fmt ./...' to fix formatting errors."
         print out
-        print err
         return False
     if not no_vet:
         print "Installing 'go vet' tool..."
@@ -344,7 +343,6 @@ def run_tests(race, parallel, timeout, no_vet, tags=[]):
         if len(out) > 0 or len(err) > 0:
             print "Go vet failed. Please run 'go vet ./...' and fix any errors."
             print out
-            print err
             return False
     else:
         print "Skipping go vet ..."
@@ -602,6 +600,7 @@ def print_usage():
     print "\t --nightly \n\t\t- Whether the produced build is a nightly (affects version information)."
     print "\t --update \n\t\t- Whether dependencies should be updated prior to building."
     print "\t --test \n\t\t- Run Go tests. Will not produce a build."
+    print "\t --cluster-tests \n\t\t- Run cluster tests."
     print "\t --parallel \n\t\t- Run Go tests in parallel up to the count specified."
     print "\t --generate \n\t\t- Run `go generate`."
     print "\t --timeout \n\t\t- Timeout for Go tests. Defaults to 480s."
@@ -774,12 +773,12 @@ def main():
     if test:
         # Generate a build for any tests
         print "Generating build for tests..."
-        if not build(version=version,
-                     branch=get_current_branch(),
-                     commit=get_current_commit(short=True),
-                     platform=get_system_platform(),
-                     arch=get_system_arch(),
-                     outdir="/usr/local/bin"):
+        if build(version=version,
+                 branch=get_current_branch(),
+                 commit=get_current_commit(short=True),
+                 platform=get_system_platform(),
+                 arch=get_system_arch(),
+                 outdir="/usr/local/bin"):
             print "Could not generate a test build!"
             return 1
         if not run_tests(race, parallel, timeout, no_vet, tags=test_tags):
