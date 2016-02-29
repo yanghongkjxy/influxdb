@@ -358,6 +358,7 @@ def run_tests(race, parallel, timeout, no_vet, tags=[]):
         test_command += " -timeout {}".format(timeout)
     test_command += " ./..."
     run(test_command)
+    print "Tests run successfully!"
     return True
 
 def build(version=None,
