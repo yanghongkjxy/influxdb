@@ -428,12 +428,12 @@ def build(version=None,
         if race:
             build_command += "-race "
         go_version = get_go_version()
-        if "1.4" in go_version:
+        if go_version != None and "1.4" in go_version:
             build_command += "-ldflags=\"-X main.version {} -X main.branch {} -X main.commit {}\" ".format(version,
                                                                                                            get_current_branch(),
                                                                                                            get_current_commit())
         else:
-            # With Go 1.5, the linker flag arguments changed to 'name=value' from 'name value'
+            # With Go 1.5+, the linker flag arguments changed to 'name=value' from 'name value'
             build_command += "-ldflags=\"-X main.version={} -X main.branch={} -X main.commit={}\" ".format(version,
                                                                                                            get_current_branch(),
                                                                                                            get_current_commit())
