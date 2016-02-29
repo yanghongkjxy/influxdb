@@ -131,30 +131,35 @@ fi
 case $ENVIRONMENT_INDEX in
     0)
         # 64 bit tests
-        run_test_docker Dockerfile_build_ubuntu64 test_64bit --debug --test
+        run_test_docker Dockerfile_build_ubuntu64 test_64bit --debug --test --cluster-tests
         rc=$?
         ;;
     1)
         # 64 bit tsm tests
         INFLUXDB_DATA_ENGINE="tsm1"
-        run_test_docker Dockerfile_build_ubuntu64 test_64bit_tsm --debug --test
+        run_test_docker Dockerfile_build_ubuntu64 test_64bit_tsm --debug --test --cluster-tests
         rc=$?
         ;;
     2)
         # 64 bit race tests
         GORACE="halt_on_error=1"
-        run_test_docker Dockerfile_build_ubuntu64 test_64bit_race --debug --test --race
+        run_test_docker Dockerfile_build_ubuntu64 test_64bit_race --debug --test --race --cluster-tests
         rc=$?
         ;;
     3)
         # 32 bit tests
-        run_test_docker Dockerfile_build_ubuntu32 test_32bit --debug --test
+        run_test_docker Dockerfile_build_ubuntu32 test_32bit --debug --test --cluster-tests
         rc=$?
         ;;
     4)
+        # 64 bit tests on golang tip
+        run_test_docker Dockerfile_build_ubuntu64_git test_64bit_gotip --debug --test --no-vet --cluster-tests
+        rc=$?
+        ;;
+    5)
         # 64 bit tests on golang go1.6
-        GO_CHECKOUT=go1.6
-        run_test_docker Dockerfile_build_ubuntu64_git test_64bit_go1.6 --debug --test --no-vet
+        GO_CHECKOUT=go1.6beta1
+        run_test_docker Dockerfile_build_ubuntu64_git test_64bit_go1.6 --debug --test --no-vet --cluster-tests
         rc=$?
         ;;
     "save")
