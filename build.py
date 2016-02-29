@@ -315,11 +315,13 @@ def upload_packages(packages, bucket_name=None, nightly=False):
     print ""
     return 0
 
-def run_tests(race, parallel, timeout, no_vet):
+def run_tests(race, parallel, tags, timeout, no_vet):
     print "Running tests:"
     print "\tRace: ", race
     if parallel is not None:
         print "\tParallel:", parallel
+    if tags is not None:
+        print "\tTags:", tags
     if timeout is not None:
         print "\tTimeout:", timeout
     sys.stdout.flush()
@@ -348,6 +350,8 @@ def run_tests(race, parallel, timeout, no_vet):
         test_command += " -race"
     if parallel is not None:
         test_command += " -parallel {}".format(parallel)
+    if tags is not None:
+        test_command += " -tags {}".format(tags)
     if timeout is not None:
         test_command += " -timeout {}".format(timeout)
     test_command += " ./..."
@@ -630,6 +634,7 @@ def main():
     upload = False
     test = False
     parallel = None
+    cluster_tests = False
     timeout = None
     iteration = 1
     no_vet = False
@@ -683,6 +688,9 @@ def main():
         elif '--parallel' in arg:
             # Set parallel for tests.
             parallel = int(arg.split("=")[1])
+        elif '--cluster-tests' in arg:
+            # Set cluster build tag for tests.
+            tags = "cluster"
         elif '--timeout' in arg:
             # Set timeout for tests.
             timeout = arg.split("=")[1]
@@ -765,7 +773,7 @@ def main():
             return 1
 
     if test:
-        if not run_tests(race, parallel, timeout, no_vet):
+        if not run_tests(race, parallel, tags, timeout, no_vet):
             return 1
         return 0
 
