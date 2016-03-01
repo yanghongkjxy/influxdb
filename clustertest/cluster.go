@@ -8,8 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/influxdata/influxdb/models"
 
 	"github.com/BurntSushi/toml"
 	"github.com/influxdata/influxdb/client/v2"
@@ -32,14 +35,21 @@ type Cluster interface {
 	Stop() error
 
 	// QueryAll runs the provided query on all data nodes in the cluster.
-	QueryAll(cmd string, database string) <-chan queryResponse
+	QueryAll(cmd string, database string) <-chan response
 
 	// QueryAny runs the provided query on an arbitrarily chosen node in the
 	// cluster.
-	QueryAny(cmd string, database string) queryResponse
+	QueryAny(cmd string, database string) response
 
 	// Query the specified data node.
-	Query(id int, cmd string, database string) queryResponse
+	Query(id int, cmd string, database string) response
+
+	// WriteAny writes the provided points to an arbitrary node in the
+	// cluster.
+	WriteAny(database string, points ...string) response
+
+	// Write the provided points to the specified node.
+	Write(id int, database string, points ...string) response
 
 	// NewDatabase generates a database name and creates it in the
 	// cluster.
@@ -272,7 +282,7 @@ func (c *local) Stop() error {
 	return nil
 }
 
-type queryResponse struct {
+type response struct {
 	nodeID int
 	result client.Result
 	err    error
@@ -281,9 +291,9 @@ type queryResponse struct {
 // QueryAll runs the query on all data nodes in the cluster. QueryAll
 // immediately returns a channel to the caller, and ensures that the
 // channel is closed when all nodes have returned results.
-func (c *local) QueryAll(cmd string, database string) <-chan queryResponse {
+func (c *local) QueryAll(cmd string, database string) <-chan response {
 	var (
-		ch = make(chan queryResponse, len(c.dataNodes))
+		ch = make(chan response, len(c.dataNodes))
 		wg sync.WaitGroup
 	)
 
@@ -302,7 +312,7 @@ func (c *local) QueryAll(cmd string, database string) <-chan queryResponse {
 
 // QueryAny runs Query on an arbitrary data node, returning the response
 // back to the caller.
-func (c *local) QueryAny(cmd string, database string) queryResponse {
+func (c *local) QueryAny(cmd string, database string) response {
 	var chosen int
 	for id := range c.dataNodes {
 		chosen = id
@@ -312,20 +322,18 @@ func (c *local) QueryAny(cmd string, database string) queryResponse {
 }
 
 // Query runs the query on the specified data node.
-func (c *local) Query(id int, cmd string, database string) queryResponse {
+func (c *local) Query(id int, cmd string, database string) response {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	resp := queryResponse{nodeID: id}
+	resp := response{nodeID: id}
 
 	// Get client for node.
 	clt, ok := c.clients[id]
 	if !ok {
-		conf := client.HTTPConfig{Timeout: c.queryTimeout, Addr: "http://" + c.dataNodes[id]}
-		if clt, resp.err = client.NewHTTPClient(conf); resp.err != nil {
-			return resp
-		}
-		c.clients[id] = clt
+		c.mu.RUnlock()
+		clt, resp.err = c.setClient(id)
+		c.mu.RLock()
 	}
 
 	// TODO(edd): handle precision?
@@ -347,6 +355,67 @@ func (c *local) Query(id int, cmd string, database string) queryResponse {
 
 	resp.result = qr.Results[0]
 	return resp
+}
+
+func (c *local) WriteAny(database string, points ...string) response {
+	var chosen int
+	for id := range c.dataNodes {
+		chosen = id
+		break
+	}
+	return c.Write(chosen, database, points...)
+}
+
+// Write writes the provided points on the specified node.
+func (c *local) Write(id int, database string, points ...string) response {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	resp := response{nodeID: id}
+
+	// Get client for node.
+	clt, ok := c.clients[id]
+	if !ok {
+		c.mu.RUnlock()
+		clt, resp.err = c.setClient(id)
+		c.mu.RLock()
+	}
+
+	// TODO(edd): handle precision?
+	pts, err := models.ParsePointsString(strings.Join(points, "\n"))
+	if err != nil {
+		resp.err = err
+		return resp
+	}
+
+	bp, err := client.NewBatchPoints(client.BatchPointsConfig{Database: database})
+	if err != nil {
+		resp.err = err
+		return resp
+	}
+
+	for _, point := range pts {
+		bp.AddPoint(&client.Point{Point: point})
+	}
+
+	if err = clt.Write(bp); err != nil {
+		resp.err = err
+		return resp
+	}
+	return resp
+}
+
+// setClient sets up a new HTTP client for node.
+func (c *local) setClient(id int) (client.Client, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	conf := client.HTTPConfig{Timeout: c.queryTimeout, Addr: "http://" + c.dataNodes[id]}
+	clt, err := client.NewHTTPClient(conf)
+	if err != nil {
+		return nil, err
+	}
+	c.clients[id] = clt
+	return clt, nil
 }
 
 // NewDatabase generates a new database name of the form `dbx` where x
