@@ -59,7 +59,7 @@ func TestShowDropDatabase(t *testing.T) {
 	}
 
 	// Verify that the database exists on all nodes in the cluster.
-	for resp := range clst.RunAll("SHOW DATABASES", "") {
+	for resp := range clst.QueryAll("SHOW DATABASES", "") {
 		result, err := databases(resp.result)
 		if err != nil {
 			t.Fatal(err)
@@ -72,12 +72,12 @@ func TestShowDropDatabase(t *testing.T) {
 	}
 
 	// When the database is dropped, it should be dropped on all nodes.
-	qr := clst.RunAny(fmat("DROP DATABASE %q", dbName), "")
+	qr := clst.QueryAny(fmat("DROP DATABASE %q", dbName), "")
 	if qr.err != nil {
 		t.Fatalf("[node %d] %v", qr.nodeID, qr.err)
 	}
 
-	for resp := range clst.RunAll("SHOW DATABASES", "") {
+	for resp := range clst.QueryAll("SHOW DATABASES", "") {
 		result, err := databases(resp.result)
 		if err != nil {
 			t.Fatal(err)

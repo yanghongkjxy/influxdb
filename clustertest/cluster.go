@@ -31,15 +31,15 @@ type Cluster interface {
 	// Stop releases any necessary resources.
 	Stop() error
 
-	// RunAll runs the provided query on all data nodes in the cluster.
-	RunAll(cmd string, database string) <-chan queryResponse
+	// QueryAll runs the provided query on all data nodes in the cluster.
+	QueryAll(cmd string, database string) <-chan queryResponse
 
-	// RunAny runs the provided query on an arbitrarily chosen node in the
+	// QueryAny runs the provided query on an arbitrarily chosen node in the
 	// cluster.
-	RunAny(cmd string, database string) queryResponse
+	QueryAny(cmd string, database string) queryResponse
 
-	// Run the query on the specified data node.
-	Run(id int, cmd string, database string) queryResponse
+	// Query the specified data node.
+	Query(id int, cmd string, database string) queryResponse
 
 	// NewDatabase generates a database name and creates it in the
 	// cluster.
@@ -278,10 +278,10 @@ type queryResponse struct {
 	err    error
 }
 
-// RunAll runs the query on all data nodes in the cluster. RunAll
+// QueryAll runs the query on all data nodes in the cluster. QueryAll
 // immediately returns a channel to the caller, and ensures that the
 // channel is closed when all nodes have returned results.
-func (c *local) RunAll(cmd string, database string) <-chan queryResponse {
+func (c *local) QueryAll(cmd string, database string) <-chan queryResponse {
 	var (
 		ch = make(chan queryResponse, len(c.dataNodes))
 		wg sync.WaitGroup
@@ -291,7 +291,7 @@ func (c *local) RunAll(cmd string, database string) <-chan queryResponse {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			ch <- c.Run(id, cmd, database)
+			ch <- c.Query(id, cmd, database)
 		}(id)
 	}
 
@@ -300,17 +300,19 @@ func (c *local) RunAll(cmd string, database string) <-chan queryResponse {
 	return ch
 }
 
-func (c *local) RunAny(cmd string, database string) queryResponse {
+// QueryAny runs Query on an arbitrary data node, returning the response
+// back to the caller.
+func (c *local) QueryAny(cmd string, database string) queryResponse {
 	var chosen int
 	for id := range c.dataNodes {
 		chosen = id
 		break
 	}
-	return c.Run(chosen, cmd, database)
+	return c.Query(chosen, cmd, database)
 }
 
-// Run runs the query on the specified data node.
-func (c *local) Run(id int, cmd string, database string) queryResponse {
+// Query runs the query on the specified data node.
+func (c *local) Query(id int, cmd string, database string) queryResponse {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -355,7 +357,7 @@ func (c *local) NewDatabase() (string, error) {
 	name := fmt.Sprintf("db%d", c.dbi)
 	c.mu.Unlock()
 
-	qr := c.RunAny(fmt.Sprintf("CREATE DATABASE %q", name), "")
+	qr := c.QueryAny(fmt.Sprintf("CREATE DATABASE %q", name), "")
 	if qr.err != nil {
 		return "", qr.err
 	}
