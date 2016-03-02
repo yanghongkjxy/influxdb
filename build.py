@@ -334,9 +334,8 @@ def run_tests(race, parallel, timeout, no_vet, tags=[]):
     if not no_vet:
         print "Installing 'go vet' tool..."
         run("go install golang.org/x/tools/cmd/vet")
-        p = subprocess.Popen(go_vet_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        out, err = p.communicate()
-        if len(out) > 0 or len(err) > 0:
+        out = run(go_vet_command)
+        if len(out) > 0:
             print "Go vet failed. Please run 'go vet ./...' and fix any errors."
             print out
             return False
