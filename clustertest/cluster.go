@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/influxdata/influxdb/uuid"
+
 	"github.com/influxdata/influxdb/models"
 
 	"github.com/BurntSushi/toml"
@@ -93,6 +95,10 @@ type local struct {
 	cmds []*exec.Cmd
 
 	logger *log.Logger
+
+	// running keeps track of if the cluster is running or not. It makes
+	// implementing idempotent Start/Stop methods simpler.
+	running bool
 }
 
 // newlocal creates configuration files and directories for a new
@@ -189,12 +195,30 @@ func newlocal(hybridN, metaN, dataN int, binPath string) (*local, error) {
 
 // Start starts all of the Influxd processes in the cluster.
 func (c *local) Start() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.running {
+		return nil
+	}
+
 	if err := c.startNodes(); err != nil {
 		return err
 	}
 	if err := c.mapServers(20 * time.Second); err != nil {
 		return err
 	}
+
+	// Open clients to each data node.
+	for id, node := range c.dataNodes {
+		conf := client.HTTPConfig{Timeout: c.queryTimeout, Addr: "http://" + node}
+		clt, err := client.NewHTTPClient(conf)
+		if err != nil {
+			return err
+		}
+		c.clients[id] = clt
+	}
+	c.running = true
 	return nil
 }
 
@@ -256,15 +280,15 @@ func (c *local) mapServers(timeout time.Duration) error {
 				return fmt.Errorf("expected some results")
 			}
 
-			result, err := servers(resp.Results[0])
-			if err != nil || len(result.MetaServers) < c.metaN || len(result.DataServers) < c.dataN {
+			result, err := parseResult(ShowServers, resp.Results[0])
+			if err != nil || len(result.metaServers) < c.metaN || len(result.dataServers) < c.dataN {
 				d := time.Duration(math.Pow(2, retries)) * 50 * time.Millisecond
 				check = time.After(d)
-				c.logger.Printf("Retrying after %v: %v, %d, %d\n", d, err, len(result.MetaServers), len(result.DataServers))
+				c.logger.Printf("Retrying after %v: %v, %d, %d\n", d, err, len(result.metaServers), len(result.dataServers))
 				retries++
 				continue
 			}
-			c.dataNodes = result.DataServers
+			c.dataNodes = result.dataServers
 			return nil
 		}
 	}
@@ -272,6 +296,23 @@ func (c *local) mapServers(timeout time.Duration) error {
 
 // Stop terminates all influxd processes started by the suite.
 func (c *local) Stop() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.running {
+		return nil
+	}
+
+	// close all clients.
+	c.logger.Print("Closing client connections")
+	for id, clt := range c.clients {
+		if err := clt.Close(); err != nil {
+			// TODO(edd): should really go to stderr (or logger for errors)
+			c.logger.Print(err)
+		}
+		delete(c.clients, id)
+	}
+
 	c.logger.Print("Killing influxd processes")
 	for _, cmd := range c.cmds {
 		if err := cmd.Process.Signal(os.Interrupt); err != nil {
@@ -279,6 +320,8 @@ func (c *local) Stop() error {
 			c.logger.Print(err)
 		}
 	}
+
+	c.running = false
 	return nil
 }
 
@@ -292,6 +335,9 @@ type response struct {
 // immediately returns a channel to the caller, and ensures that the
 // channel is closed when all nodes have returned results.
 func (c *local) QueryAll(cmd string, database string) <-chan response {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	var (
 		ch = make(chan response, len(c.dataNodes))
 		wg sync.WaitGroup
@@ -313,27 +359,34 @@ func (c *local) QueryAll(cmd string, database string) <-chan response {
 // QueryAny runs Query on an arbitrary data node, returning the response
 // back to the caller.
 func (c *local) QueryAny(cmd string, database string) response {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	var chosen int
 	for id := range c.dataNodes {
 		chosen = id
 		break
 	}
-	return c.Query(chosen, cmd, database)
+	return c.query(chosen, cmd, database)
 }
 
 // Query runs the query on the specified data node.
 func (c *local) Query(id int, cmd string, database string) response {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	return c.query(id, cmd, database)
+}
 
+// query runs a query on a specified data node.
+// Callers must manage a read lock on the local cluster appropriately.
+func (c *local) query(id int, cmd string, database string) response {
 	resp := response{nodeID: id}
 
 	// Get client for node.
 	clt, ok := c.clients[id]
 	if !ok {
-		c.mu.RUnlock()
-		clt, resp.err = c.setClient(id)
-		c.mu.RLock()
+		resp.err = fmt.Errorf("cannot find client for node %d. Possibly cluster stoppage", id)
+		return resp
 	}
 
 	// TODO(edd): handle precision?
@@ -358,6 +411,9 @@ func (c *local) Query(id int, cmd string, database string) response {
 }
 
 func (c *local) WriteAny(database string, points ...string) response {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	var chosen int
 	for id := range c.dataNodes {
 		chosen = id
@@ -370,15 +426,19 @@ func (c *local) WriteAny(database string, points ...string) response {
 func (c *local) Write(id int, database string, points ...string) response {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	return c.write(id, database, points...)
+}
 
+// write writes the provided points on the specified node.
+// Callers must manage a read lock on the local cluster appropriately.
+func (c *local) write(id int, database string, points ...string) response {
 	resp := response{nodeID: id}
 
 	// Get client for node.
 	clt, ok := c.clients[id]
 	if !ok {
-		c.mu.RUnlock()
-		clt, resp.err = c.setClient(id)
-		c.mu.RLock()
+		resp.err = fmt.Errorf("cannot find client for node %d", id)
+		return resp
 	}
 
 	// TODO(edd): handle precision?
@@ -405,27 +465,13 @@ func (c *local) Write(id int, database string, points ...string) response {
 	return resp
 }
 
-// setClient sets up a new HTTP client for node.
-func (c *local) setClient(id int) (client.Client, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	conf := client.HTTPConfig{Timeout: c.queryTimeout, Addr: "http://" + c.dataNodes[id]}
-	clt, err := client.NewHTTPClient(conf)
-	if err != nil {
-		return nil, err
-	}
-	c.clients[id] = clt
-	return clt, nil
-}
-
 // NewDatabase generates a new database name of the form `dbx` where x
 // is an increasing number, and creates it within the cluster.
 func (c *local) NewDatabase() (string, error) {
-	c.mu.Lock()
-	c.dbi++
-	name := fmt.Sprintf("db%d", c.dbi)
-	c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
+	name := fmt.Sprintf("db_%s", uuid.TimeUUID().String())
 	qr := c.QueryAny(fmt.Sprintf("CREATE DATABASE %q", name), "")
 	if qr.err != nil {
 		return "", qr.err

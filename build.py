@@ -150,11 +150,7 @@ def run(command, allow_failure=False, shell=False):
         else:
             out = subprocess.check_output(command.split(), stderr=subprocess.STDOUT)
         if debug:
-<<<<<<< 127f1f1abc4555f6dcadf8121aa146e4062593b8
-            print "[DEBUG] command output: \n{}\n".format(out)
-=======
             print "[DEBUG] command output: {}".format(out)
->>>>>>> Generate build for tests.
     except subprocess.CalledProcessError as e:
         print ""
         print ""

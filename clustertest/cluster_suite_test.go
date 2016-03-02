@@ -44,6 +44,7 @@ func checkPanic(t *testing.T) {
 	if r := recover(); r != nil {
 		t.Logf("Panic in test detected: %v", r)
 		clst.Stop()
+		panic(r)
 	}
 }
 
@@ -59,8 +60,9 @@ func TestShowDropDatabase(t *testing.T) {
 	}
 
 	// Verify that the database exists on all nodes in the cluster.
+	t.Logf("Verifying nodes have database database %s", dbName)
 	for resp := range clst.QueryAll("SHOW DATABASES", "") {
-		result, err := databases(resp.result)
+		result, err := parseResult(ShowDatabases, resp.result)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -72,33 +74,123 @@ func TestShowDropDatabase(t *testing.T) {
 	}
 
 	// When the database is dropped, it should be dropped on all nodes.
-	qr := clst.QueryAny(fmat("DROP DATABASE %q", dbName), "")
-	if qr.err != nil {
+	t.Logf("Dropping database %s", dbName)
+	if qr := clst.QueryAny(fmat("DROP DATABASE %q", dbName), ""); qr.err != nil {
 		t.Fatalf("[node %d] %v", qr.nodeID, qr.err)
 	}
 
+	t.Logf("Verifying nodes no longer have database %s", dbName)
 	for resp := range clst.QueryAll("SHOW DATABASES", "") {
-		result, err := databases(resp.result)
+		result, err := parseResult(ShowDatabases, resp.result)
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		if result.HasDatabase(dbName) {
 			t.Errorf("Node %d still has database %s", resp.nodeID, dbName)
+		} else {
+			t.Logf("Node %d no longer has database %s", resp.nodeID, dbName)
 		}
 	}
 }
 
+// TestShowDropMeasurements tests that a database is available on all data
+// nodes, and that when it's dropped, it's dropped from all data nodes.
 func TestShowDropMeasurements(t *testing.T) {
 	t.Parallel()
 	defer checkPanic(t)
-	t.Skip("Not implemented yet")
+
+	dbName, err := clst.NewDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert a measurement.
+	resp := clst.WriteAny(dbName, "cpu,foo=bar value=1", "cpu value=20")
+	if resp.err != nil {
+		t.Fatal(resp.err)
+	}
+
+	// Verify that the cpu measurement is available on all nodes.
+	var measurement = "cpu"
+	t.Logf("Verifying nodes have measurement %s", measurement)
+	for resp := range clst.QueryAll("SHOW MEASUREMENTS", dbName) {
+		result, err := parseResult(ShowMeasurements, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !result.HasMeasurement(measurement) {
+			t.Fatalf("Node %d does not have measurement %s", resp.nodeID, measurement)
+		}
+		t.Logf("Node %d has measurement %s", resp.nodeID, measurement)
+	}
+
+	// When the measurement is dropped, it should be dropped on all
+	// nodes.
+	t.Logf("Dropping measurement %s", measurement)
+	if qr := clst.QueryAny(fmat("DROP MEASUREMENT %q", measurement), dbName); qr.err != nil {
+		t.Fatalf("[node %d] %v", qr.nodeID, qr.err)
+	}
+
+	t.Logf("Verifying all nodes have dropped measurement %s", measurement)
+	for resp := range clst.QueryAll("SHOW MEASUREMENTS", dbName) {
+		result, err := parseResult(ShowMeasurements, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if result.HasMeasurement(measurement) {
+			t.Errorf("Node %d still has measurement %s", resp.nodeID, measurement)
+		} else {
+			t.Logf("Node %d dropped measurement %s", resp.nodeID, measurement)
+		}
+	}
 }
 
 func TestShowDropSeries(t *testing.T) {
 	t.Parallel()
 	defer checkPanic(t)
-	t.Skip("Not implemented yet")
+
+	dbName, err := clst.NewDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert some measurements.
+	resp := clst.WriteAny(dbName, "cpu,foo=bar value=1", "cpu value=20", "other_measure value=2")
+	if resp.err != nil {
+		t.Fatal(resp.err)
+	}
+
+	// Verify that the cpu series are available on all nodes.
+	var seriesMeasure = "cpu"
+	t.Logf("Verify nodes have series for measurement %s", seriesMeasure)
+	for resp := range clst.QueryAll("SHOW SERIES", dbName) {
+		result, err := parseResult(ShowSeries, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !result.HasSeriesForMeasurement(seriesMeasure) {
+			t.Fatalf("Node %d does not have any series for measurement %s", resp.nodeID, seriesMeasure)
+		}
+		t.Logf("Node %d has series for measurement %s", resp.nodeID, seriesMeasure)
+	}
+
+	t.Logf("Verify nodes no longer have series for measurement %s", seriesMeasure)
+	for resp := range clst.QueryAll("SHOW SERIES", dbName) {
+		result, err := parseResult(ShowSeries, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if result.HasSeriesForMeasurement(seriesMeasure) {
+			t.Errorf("Node %d still has series for measurement %s", resp.nodeID, seriesMeasure)
+		} else {
+			t.Logf("Node %d no longer has series for measurement %s", resp.nodeID, seriesMeasure)
+		}
+	}
 }
 
 func TestShowTagKeys(t *testing.T) {
