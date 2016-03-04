@@ -347,8 +347,13 @@ func (c *local) Stop() error {
 
 	c.logger.Print("Killing influxd processes")
 	for _, cmd := range c.cmds {
+		c.logger.Printf("Killing pid: %d", cmd.cmd.Process.Pid)
 		if err := cmd.cmd.Process.Signal(os.Interrupt); err != nil {
 			// TODO(edd): should really go to stderr (or logger for errors)
+			c.logger.Print(err)
+		}
+
+		if _, err := cmd.cmd.Process.Wait(); err != nil {
 			c.logger.Print(err)
 		}
 
