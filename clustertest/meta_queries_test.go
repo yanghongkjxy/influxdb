@@ -6,7 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"testing"
+	"time"
 )
 
 // NOTE: clst is not threadsafe. It is assumed (for the moment) that it
@@ -21,6 +23,7 @@ func TestMain(m *testing.M) {
 	hybridN := flag.Int("hybrid", 3, "Number of hybrid nodes in the cluster")
 	metaN := flag.Int("meta", 0, "Number of consensus nodes in the cluster")
 	dataN := flag.Int("data", 0, "Number of data nodes in the cluster")
+	inspect := flag.Bool("inspect", false, "inspect will pause the main test goroutine on a test fail")
 	flag.Parse()
 
 	var err error
@@ -30,12 +33,20 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
-	if err := clst.Start(); err != nil {
+	if err = clst.Start(); err != nil {
 		clst.Stop()
 		panic(err)
 	}
 
 	code := m.Run()
+
+	if code > 0 && *inspect {
+		c := make(chan os.Signal, 1)
+		fmt.Println("Pausing test process for inspection. Send SIGTERM to exit (Ctrl + c)")
+		signal.Notify(c, os.Interrupt)
+		<-c
+		fmt.Println("SIGTERM received. Shutting down gracefully.")
+	}
 	clst.Stop()
 	os.Exit(code)
 }
@@ -58,6 +69,7 @@ func TestShowDropDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Logf("Using database: %s", dbName)
 
 	// Verify that the database exists on all nodes in the cluster.
 	t.Logf("Verifying nodes have database database %s", dbName)
@@ -94,9 +106,9 @@ func TestShowDropDatabase(t *testing.T) {
 	}
 }
 
-// TestShowDropMeasurements tests that a database is available on all data
-// nodes, and that when it's dropped, it's dropped from all data nodes.
-func TestShowDropMeasurements(t *testing.T) {
+// TestDropMeasurement tests that a measurement written to all data nodes
+// is dropped from all data nodes.
+func TestDropMeasurement(t *testing.T) {
 	t.Parallel()
 	defer checkPanic(t)
 
@@ -104,15 +116,17 @@ func TestShowDropMeasurements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Logf("Using database: %s", dbName)
 
 	// Insert a measurement.
-	resp := clst.WriteAny(dbName, "cpu,foo=bar value=1", "cpu value=20")
+	var measurement = "cpu"
+	resp := clst.WriteAny(dbName, fmat("%s value=1", measurement))
 	if resp.err != nil {
 		t.Fatal(resp.err)
 	}
+	t.Logf("[node %d] point written.", resp.nodeID)
 
-	// Verify that the cpu measurement is available on all nodes.
-	var measurement = "cpu"
+	// Verify that the measurement is available on all nodes.
 	t.Logf("Verifying nodes have measurement %s", measurement)
 	for resp := range clst.QueryAll("SHOW MEASUREMENTS", dbName) {
 		result, err := parseResult(ShowMeasurements, resp.result)
@@ -148,7 +162,45 @@ func TestShowDropMeasurements(t *testing.T) {
 	}
 }
 
-func TestShowDropSeries(t *testing.T) {
+// TestShowMeasurements tests that a measurement is available on all
+// data nodes when it's only been written to a single node.
+func TestShowMeasurements(t *testing.T) {
+	t.Parallel()
+	defer checkPanic(t)
+
+	dbName, err := clst.NewDatabase(withDefaultRP(time.Hour, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Using database: %s", dbName)
+
+	// Insert a measurement. It will only be stored on a single node
+	// due to the retention policy.
+	var measurement = "cpu"
+	resp := clst.WriteAny(dbName, fmat("%s value=1", measurement))
+	if resp.err != nil {
+		t.Fatal(resp.err)
+	}
+	t.Logf("[node %d] point written.", resp.nodeID)
+
+	// Verify that the cpu measurement is available on all nodes.
+	t.Logf("Verifying all nodes have measurement %s", measurement)
+	for resp := range clst.QueryAll("SHOW MEASUREMENTS", dbName) {
+		result, err := parseResult(ShowMeasurements, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !result.HasMeasurement(measurement) {
+			t.Fatalf("Node %d does not have measurement %s", resp.nodeID, measurement)
+		}
+		t.Logf("Node %d has measurement %s", resp.nodeID, measurement)
+	}
+}
+
+// TestDropSeries tests that a series written to all nodes is dropped
+// from all nodes.
+func TestDropSeries(t *testing.T) {
 	t.Parallel()
 	defer checkPanic(t)
 
@@ -156,15 +208,21 @@ func TestShowDropSeries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Logf("Using database: %s", dbName)
 
 	// Insert some measurements.
-	resp := clst.WriteAny(dbName, "cpu,foo=bar value=1", "cpu value=20", "other_measure value=2")
+	var seriesMeasure = "cpu"
+	resp := clst.WriteAny(dbName,
+		fmat("%s,foo=bar value=1", seriesMeasure),
+		fmat("%s value=20", seriesMeasure),
+		"other_measure value=2",
+	)
 	if resp.err != nil {
 		t.Fatal(resp.err)
 	}
+	t.Logf("[node %d] point written.", resp.nodeID)
 
 	// Verify that the cpu series are available on all nodes.
-	var seriesMeasure = "cpu"
 	t.Logf("Verify nodes have series for measurement %s", seriesMeasure)
 	for resp := range clst.QueryAll("SHOW SERIES", dbName) {
 		result, err := parseResult(ShowSeries, resp.result)
@@ -178,6 +236,13 @@ func TestShowDropSeries(t *testing.T) {
 		t.Logf("Node %d has series for measurement %s", resp.nodeID, seriesMeasure)
 	}
 
+	// Drop the series..
+	t.Logf("Dropping all series for measurement %s", seriesMeasure)
+	if qr := clst.QueryAny(fmat("DROP SERIES FROM %q", seriesMeasure), dbName); qr.err != nil {
+		t.Fatalf("[node %d] %v", qr.nodeID, qr.err)
+	}
+
+	// Verify the series have been removed from
 	t.Logf("Verify nodes no longer have series for measurement %s", seriesMeasure)
 	for resp := range clst.QueryAll("SHOW SERIES", dbName) {
 		result, err := parseResult(ShowSeries, resp.result)
@@ -193,10 +258,90 @@ func TestShowDropSeries(t *testing.T) {
 	}
 }
 
+// TestShowSeries tests that a series is available on all data nodes
+// when it's only been written to a single node.
+func TestShowSeries(t *testing.T) {
+	t.Parallel()
+	defer checkPanic(t)
+	t.Skip("Waiting on some work from Ben")
+
+	// Create a database with a retentention policy that ensure data
+	// only written to one node.
+	dbName, err := clst.NewDatabase(withDefaultRP(time.Hour, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Using database: %s", dbName)
+
+	// Insert a series.
+	var seriesMeasure = "cpu"
+	resp := clst.WriteAny(dbName, fmat("%s value=1", seriesMeasure))
+	if resp.err != nil {
+		t.Fatal(resp.err)
+	}
+	t.Logf("[node %d] point written.", resp.nodeID)
+
+	// Verify that the cpu series is available on all nodes.
+	t.Logf("Verify nodes have series for measurement %s", seriesMeasure)
+	for resp := range clst.QueryAll("SHOW SERIES", dbName) {
+		result, err := parseResult(ShowSeries, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !result.HasSeriesForMeasurement(seriesMeasure) {
+			t.Fatalf("Node %d does not have any series for measurement %s", resp.nodeID, seriesMeasure)
+		}
+		t.Logf("Node %d has series for measurement %s", resp.nodeID, seriesMeasure)
+	}
+}
+
+// TestShowTagKeys tests that tags keys for a series are available from
+// any data node in a cluster.
 func TestShowTagKeys(t *testing.T) {
 	t.Parallel()
 	defer checkPanic(t)
-	t.Skip("Not implemented yet")
+
+	// Create a database with a retention policy that ensure data
+	// only written to one node.
+	dbName, err := clst.NewDatabase(withDefaultRP(time.Hour, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Using database: %s", dbName)
+
+	// Write some series with tag keys.
+	var seriesMeasures = []string{"cpu", "memory"}
+	resp := clst.WriteAny(dbName,
+		fmat("%s,foo=bar,zah=zoo value=1", seriesMeasures[0]),
+		fmat("%s,a=b value=20", seriesMeasures[1]),
+	)
+	if resp.err != nil {
+		t.Fatal(resp.err)
+	}
+	t.Logf("[node %d] point written.", resp.nodeID)
+
+	// Verify that the tag keys are available on all nodes.
+	expectedKeys := map[string][]string{
+		seriesMeasures[0]: []string{"foo", "zah"},
+		seriesMeasures[1]: []string{"a"},
+	}
+
+	t.Log("Verify nodes have tag keys for all written series")
+	for resp := range clst.QueryAll("SHOW TAG KEYS", dbName) {
+		result, err := parseResult(ShowTagKeys, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for measure, tks := range expectedKeys {
+			if !result.HasTagKeys(measure, tks) {
+				t.Fatalf("Node %d does not have tag keys %v for measurement %s", resp.nodeID, tks, measure)
+			}
+			t.Logf("Node %d has all expected tag keys for measurement %s", resp.nodeID, measure)
+		}
+
+	}
 }
 
 func TestShowTagValues(t *testing.T) {

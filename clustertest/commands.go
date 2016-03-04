@@ -3,6 +3,8 @@ package clustertest
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"sort"
 
 	"github.com/influxdata/influxdb/client/v2"
 )
@@ -15,6 +17,7 @@ const (
 	ShowDatabases
 	ShowMeasurements
 	ShowSeries
+	ShowTagKeys
 )
 
 // commandResult contains parsed data from a query result.
@@ -24,6 +27,7 @@ type commandResult struct {
 	databases    []string
 	measurements []string
 	series       map[string][]string
+	tagKeys      map[string][]string
 }
 
 // HasDatabase determines if the parsed result contains a database
@@ -55,21 +59,51 @@ func (r commandResult) HasSeriesForMeasurement(name string) bool {
 	return ok
 }
 
+// HasTagKeys returns true if the result contains a measurement with
+// the provided tag key set only.
+func (r commandResult) HasTagKeys(measure string, tagKeys []string) bool {
+	tks, ok := r.tagKeys[measure]
+	if !ok {
+		return false
+	}
+
+	if len(tks) != len(tagKeys) {
+		return false
+	}
+
+	sort.Strings(tagKeys)
+	sort.Strings(tks)
+	return reflect.DeepEqual(tks, tagKeys)
+}
+
 // parseResult parses the client result.
 //
 // Currently parseResult only supports the results of:
 //
+// - SHOW SERVERS
 // - SHOW DATABASES
 // - SHOW MEASUREMENTS
+// - SHOW SERIES
+// - SHOW TAG KEYS
 //
 func parseResult(c command, result client.Result) (*commandResult, error) {
-	res := &commandResult{}
+	res := &commandResult{
+		series:  make(map[string][]string),
+		tagKeys: make(map[string][]string),
+	}
+
 	for _, row := range result.Series {
 		for _, value := range row.Values {
 			if len(value) == 0 {
 				return nil, fmt.Errorf("value %v is empty", value)
 			}
 
+			// TODO(edd): This is inefficient because we're doing more
+			// parsing than we need to in each iteration. But it's
+			// conceptually simple for now.
+			//
+			// At some point this switch will need breaking out into
+			// smaller functions.
 			switch c {
 			case ShowServers:
 				idIDX, err := columnIDX("id", row.Columns)
@@ -139,11 +173,18 @@ func parseResult(c command, result client.Result) (*commandResult, error) {
 				if !ok {
 					return nil, fmt.Errorf("could not parse %v as string", value[idx])
 				}
-
-				if res.series == nil {
-					res.series = make(map[string][]string)
-				}
 				res.series[row.Name] = append(res.series[row.Name], key)
+			case ShowTagKeys:
+				tkIDX, err := columnIDX("tagKey", row.Columns)
+				if err != nil {
+					return nil, err
+				}
+
+				tagKey, ok := value[tkIDX].(string)
+				if !ok {
+					return nil, fmt.Errorf("could not parse %v as string", value[tkIDX])
+				}
+				res.tagKeys[row.Name] = append(res.tagKeys[row.Name], tagKey)
 			default:
 				panic("unable to parse this command")
 			}
@@ -159,7 +200,7 @@ func columnIDX(s string, columns []string) (int, error) {
 			return i, nil
 		}
 	}
-	return -1, fmt.Errorf("can't find column called %q")
+	return -1, fmt.Errorf("can't find column called %q", s)
 }
 
 // toInt asserts an int out of a json.Number
