@@ -18,6 +18,8 @@ const (
 	ShowMeasurements
 	ShowSeries
 	ShowTagKeys
+	ShowTagValues
+	ShowFieldKeys
 )
 
 // commandResult contains parsed data from a query result.
@@ -28,6 +30,8 @@ type commandResult struct {
 	measurements []string
 	series       map[string][]string
 	tagKeys      map[string][]string
+	tagValues    map[string][]string
+	fieldKeys    map[string][]string
 }
 
 // HasDatabase determines if the parsed result contains a database
@@ -76,6 +80,40 @@ func (r commandResult) HasTagKeys(measure string, tagKeys []string) bool {
 	return reflect.DeepEqual(tks, tagKeys)
 }
 
+// HasTagValues returns true if the result contains a measurement with
+// the provided tag value set only.
+func (r commandResult) HasTagValues(measure string, tagValues []string) bool {
+	tvs, ok := r.tagValues[measure]
+	if !ok {
+		return false
+	}
+
+	if len(tvs) != len(tagValues) {
+		return false
+	}
+
+	sort.Strings(tagValues)
+	sort.Strings(tvs)
+	return reflect.DeepEqual(tvs, tagValues)
+}
+
+// HasFieldKeys returns true if the result contains a measurement with
+// the provided field key set only.
+func (r commandResult) HasFieldKeys(measure string, fieldKeys []string) bool {
+	fks, ok := r.fieldKeys[measure]
+	if !ok {
+		return false
+	}
+
+	if len(fks) != len(fieldKeys) {
+		return false
+	}
+
+	sort.Strings(fieldKeys)
+	sort.Strings(fks)
+	return reflect.DeepEqual(fks, fieldKeys)
+}
+
 // parseResult parses the client result.
 //
 // Currently parseResult only supports the results of:
@@ -85,11 +123,15 @@ func (r commandResult) HasTagKeys(measure string, tagKeys []string) bool {
 // - SHOW MEASUREMENTS
 // - SHOW SERIES
 // - SHOW TAG KEYS
+// - SHOW TAG VALUES
+// - SHOW FIELD KEYS
 //
 func parseResult(c command, result client.Result) (*commandResult, error) {
 	res := &commandResult{
-		series:  make(map[string][]string),
-		tagKeys: make(map[string][]string),
+		series:    make(map[string][]string),
+		tagKeys:   make(map[string][]string),
+		tagValues: make(map[string][]string),
+		fieldKeys: make(map[string][]string),
 	}
 
 	for _, row := range result.Series {
@@ -185,6 +227,28 @@ func parseResult(c command, result client.Result) (*commandResult, error) {
 					return nil, fmt.Errorf("could not parse %v as string", value[tkIDX])
 				}
 				res.tagKeys[row.Name] = append(res.tagKeys[row.Name], tagKey)
+			case ShowTagValues:
+				tvIDX, err := columnIDX("tagValue", row.Columns)
+				if err != nil {
+					return nil, err
+				}
+
+				tagValue, ok := value[tvIDX].(string)
+				if !ok {
+					return nil, fmt.Errorf("could not parse %v as string", value[tvIDX])
+				}
+				res.tagValues[row.Name] = append(res.tagValues[row.Name], tagValue)
+			case ShowFieldKeys:
+				fkIDX, err := columnIDX("fieldKey", row.Columns)
+				if err != nil {
+					return nil, err
+				}
+
+				fieldKey, ok := value[fkIDX].(string)
+				if !ok {
+					return nil, fmt.Errorf("could not parse %v as string", value[fkIDX])
+				}
+				res.fieldKeys[row.Name] = append(res.fieldKeys[row.Name], fieldKey)
 			default:
 				panic("unable to parse this command")
 			}

@@ -263,7 +263,7 @@ func TestDropSeries(t *testing.T) {
 func TestShowSeries(t *testing.T) {
 	t.Parallel()
 	defer checkPanic(t)
-	t.Skip("Waiting on some work from Ben")
+	t.Skip("Waiting on some work")
 
 	// Create a database with a retentention policy that ensure data
 	// only written to one node.
@@ -347,13 +347,96 @@ func TestShowTagKeys(t *testing.T) {
 func TestShowTagValues(t *testing.T) {
 	t.Parallel()
 	defer checkPanic(t)
-	t.Skip("Not implemented yet")
+	t.Skip("Waiting on some work")
+
+	// Create a database with a retention policy that ensure data
+	// only written to one node.
+	dbName, err := clst.NewDatabase(withDefaultRP(time.Hour, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Using database: %s", dbName)
+
+	// Write some series with tag values.
+	var seriesMeasures = []string{"cpu", "memory"}
+	resp := clst.WriteAny(dbName,
+		fmat("%s,foo=bar,zah=zoo value=1", seriesMeasures[0]),
+		fmat("%s,a=b value=20", seriesMeasures[1]),
+	)
+	if resp.err != nil {
+		t.Fatal(resp.err)
+	}
+	t.Logf("[node %d] point written.", resp.nodeID)
+
+	// Verify that the tag keys are available on all nodes.
+	expectedValues := map[string][]string{
+		seriesMeasures[0]: []string{"bah", "zoo"},
+		seriesMeasures[1]: []string{"b"},
+	}
+
+	t.Log("Verify nodes have tag values for all written series")
+	for resp := range clst.QueryAll("SHOW TAG VALUES", dbName) {
+		result, err := parseResult(ShowTagValues, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for measure, tvs := range expectedValues {
+			if !result.HasTagKeys(measure, tvs) {
+				t.Fatalf("Node %d does not have tag values %v for measurement %s", resp.nodeID, tvs, measure)
+			}
+			t.Logf("Node %d has all expected tag values for measurement %s", resp.nodeID, measure)
+		}
+
+	}
 }
 
-func TestFieldKeys(t *testing.T) {
+// TestShowFieldKeys tests that tags keys for a series are available from
+// any data node in a cluster.
+func TestShowFieldKeys(t *testing.T) {
 	t.Parallel()
 	defer checkPanic(t)
-	t.Skip("Not implemented yet")
+
+	// Create a database with a retention policy that ensure data
+	// only written to one node.
+	dbName, err := clst.NewDatabase(withDefaultRP(time.Hour, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Using database: %s", dbName)
+
+	// Write some series with tag keys.
+	var seriesMeasures = []string{"cpu", "memory"}
+	resp := clst.WriteAny(dbName,
+		fmat(`%s value=1,boo="zoo"`, seriesMeasures[0]),
+		fmat("%s,a=b power=20", seriesMeasures[1]),
+	)
+	if resp.err != nil {
+		t.Fatal(resp.err)
+	}
+	t.Logf("[node %d] point written.", resp.nodeID)
+
+	// Verify that the tag keys are available on all nodes.
+	expectedKeys := map[string][]string{
+		seriesMeasures[0]: []string{"value", "boo"},
+		seriesMeasures[1]: []string{"power"},
+	}
+
+	t.Log("Verify nodes have tag keys for all written series")
+	for resp := range clst.QueryAll("SHOW FIELD KEYS", dbName) {
+		result, err := parseResult(ShowFieldKeys, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for measure, fks := range expectedKeys {
+			if !result.HasFieldKeys(measure, fks) {
+				t.Fatalf("Node %d does not have field keys %v for measurement %s", resp.nodeID, fks, measure)
+			}
+			t.Logf("Node %d has all expected tag keys for measurement %s", resp.nodeID, measure)
+		}
+
+	}
 }
 
 func fmat(f string, v ...interface{}) string {
