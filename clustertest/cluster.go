@@ -2,6 +2,7 @@ package clustertest
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"math"
@@ -54,8 +55,25 @@ type Cluster interface {
 	Write(id int, database string, points ...string) response
 
 	// NewDatabase generates a database name and creates it in the
-	// cluster.
-	NewDatabase() (string, error)
+	// cluster. It's possible to provide certain functional options to
+	// which will be applied in order after the database is created.
+	NewDatabase(options ...newDBOption) (string, error)
+}
+
+// A newDBOption is a functional option that provides some extra setup
+// when creating a new Database.
+type newDBOption func(c Cluster, name string) error
+
+// withDefaultRP builds a functional option for NewDatabase that sets
+// the default retention policy after the database is created.
+var withDefaultRP = func(duration time.Duration, replication int) newDBOption {
+	return func(c Cluster, name string) error {
+		alterRPCMD := fmt.Sprintf("ALTER RETENTION POLICY %q ON %q DURATION %dm REPLICATION %d", "default", name, int(duration.Minutes()), replication)
+		if qr := c.QueryAny(alterRPCMD, ""); qr.err != nil {
+			return qr.err
+		}
+		return nil
+	}
 }
 
 // TODO(edd): implement a remote Cluster?
@@ -92,13 +110,21 @@ type local struct {
 	dataNodes map[int]string
 
 	// cmds keeps track of all the processes we started.
-	cmds []*exec.Cmd
+	cmds []influxProcess
 
 	logger *log.Logger
 
 	// running keeps track of if the cluster is running or not. It makes
 	// implementing idempotent Start/Stop methods simpler.
 	running bool
+}
+
+// influxProcess ties together the Cmd for controlling the influxd
+// process and the io.Closer that will need to be closed when gracefully
+// killing influxd.
+type influxProcess struct {
+	cmd *exec.Cmd
+	fd  io.Closer
 }
 
 // newlocal creates configuration files and directories for a new
@@ -111,7 +137,7 @@ type local struct {
 // NB (edd) temporary cluster directory will not be cleaned up at the
 // moment, but currently it's using host OS's temp directory.
 func newlocal(hybridN, metaN, dataN int, binPath string) (*local, error) {
-	if metaN+hybridN < 3 {
+	if metaN+hybridN < 1 {
 		panic("cluster must have at least three meta nodes")
 	} else if dataN+hybridN < 1 {
 		panic("cluster must have at least one data node")
@@ -230,12 +256,18 @@ func (c *local) startNodes() error {
 	}
 	for pth := range c.nodeConfs {
 		cmd := exec.Command(c.binPath, fmt.Sprintf("-config=%s", pth))
-		// cmd.Stdout = os.Stdout
-		// cmd.Stderr = os.Stderr
+
+		// Setup file to log process to.
+		fd, err := os.Create(path.Join(path.Dir(pth), "influxd.log"))
+		if err != nil {
+			return err
+		}
+		cmd.Stdout, cmd.Stderr = fd, fd // exec ensure syncronised writes
+
 		if err := cmd.Start(); err != nil {
 			return err
 		}
-		c.cmds = append(c.cmds, cmd)
+		c.cmds = append(c.cmds, influxProcess{cmd: cmd, fd: fd})
 	}
 	return nil
 }
@@ -315,10 +347,13 @@ func (c *local) Stop() error {
 
 	c.logger.Print("Killing influxd processes")
 	for _, cmd := range c.cmds {
-		if err := cmd.Process.Signal(os.Interrupt); err != nil {
+		if err := cmd.cmd.Process.Signal(os.Interrupt); err != nil {
 			// TODO(edd): should really go to stderr (or logger for errors)
 			c.logger.Print(err)
 		}
+
+		// Close the log file
+		cmd.fd.Close()
 	}
 
 	c.running = false
@@ -448,7 +483,11 @@ func (c *local) write(id int, database string, points ...string) response {
 		return resp
 	}
 
-	bp, err := client.NewBatchPoints(client.BatchPointsConfig{Database: database})
+	bp, err := client.NewBatchPoints(client.BatchPointsConfig{
+		WriteConsistency: "all",
+		RetentionPolicy:  "default",
+		Database:         database,
+	})
 	if err != nil {
 		resp.err = err
 		return resp
@@ -465,15 +504,44 @@ func (c *local) write(id int, database string, points ...string) response {
 	return resp
 }
 
-// NewDatabase generates a new database name of the form `dbx` where x
-// is an increasing number, and creates it within the cluster.
-func (c *local) NewDatabase() (string, error) {
+// NewDatabase generates a new database name of the form `db_x` where x
+// is a UUID.
+func (c *local) NewDatabase(options ...newDBOption) (string, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	name := fmt.Sprintf("db_%s", uuid.TimeUUID().String())
 	qr := c.QueryAny(fmt.Sprintf("CREATE DATABASE %q", name), "")
 	if qr.err != nil {
+		return "", qr.err
+	}
+
+	// Apply any functional options
+	for _, option := range options {
+		if err := option(c, name); err != nil {
+			qr.err = err
+			return "", nil
+		}
+	}
+	return name, nil
+}
+
+// NewDatabaseWithDefaultRP generates a new database name of the form `db_x`
+// where x is a UUID, and creates it within the cluster. It then ensures
+// that the default retention policy for the database has the provided
+// duration and replication factor.
+func (c *local) NewDatabaseWithDefaultRP(duration time.Duration, replication int) (string, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	name := fmt.Sprintf("db_%s", uuid.TimeUUID().String())
+	qr := c.QueryAny(fmt.Sprintf("CREATE DATABASE %q", name), "")
+	if qr.err != nil {
+		return "", qr.err
+	}
+
+	alterRPCMD := fmt.Sprintf("ALTER RETENTION POLICY %q ON %q DURATION %dm REPLICATION %d", "default", name, int(duration.Minutes()), replication)
+	if qr = c.QueryAny(alterRPCMD, ""); qr.err != nil {
 		return "", qr.err
 	}
 	return name, nil
