@@ -3,7 +3,33 @@ package clustertest
 import (
 	"testing"
 	"time"
+
+	"github.com/influxdata/influxdb/uuid"
 )
+
+// TestCreateDropDatabase repeatedly creates a database in a
+// cluster and then drops it.
+func TestCreateDropDatabase(t *testing.T) {
+	n := 100
+
+	t.Parallel()
+	defer checkPanic(t)
+
+	dbName := uuid.TimeUUID().String()
+	t.Logf("Database %s created", dbName)
+	for i := 0; i < n; i++ {
+		// Create the database using any node.
+		if resp := clst.QueryAny(fmat("CREATE DATABASE %q", dbName), "§"); resp.err != nil {
+			t.Fatal(resp.err)
+		}
+
+		// Drop the database using any node.
+		if resp := clst.QueryAny(fmat("DROP DATABASE %q", dbName), ""); resp.err != nil {
+			t.Fatal(resp.err)
+		}
+
+	}
+}
 
 // TestCreateWriteShowMeasurements repeatedly creates a database in a
 // cluster with a replication factor of 1, then attempts runs
