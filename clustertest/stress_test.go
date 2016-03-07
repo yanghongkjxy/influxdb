@@ -52,7 +52,7 @@ func TestCreateWriteShowMeasurements(t *testing.T) {
 			measurement   = "cpu"
 			lastNodeWrite int
 		)
-		resp := clst.WriteAny(dbName, fmat("%s value=1", measurement))
+		resp := clst.WriteAny(dbName, fmat("%s value=%d", measurement, i))
 		if resp.err != nil {
 			t.Fatal(resp.err)
 		}

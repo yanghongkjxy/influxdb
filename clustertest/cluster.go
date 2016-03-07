@@ -1,3 +1,4 @@
+// +build cluster
 package clustertest
 
 import (
@@ -103,7 +104,6 @@ type local struct {
 
 	mu      sync.RWMutex
 	clients map[int]client.Client // clients for querying nodes
-	dbi     int                   // Index for ensuring we can create a new database
 
 	// dataNodes maintains a mapping between a data/hybrid node's ID and
 	// the address their HTTP service is bound to.
@@ -138,7 +138,7 @@ type influxProcess struct {
 // moment, but currently it's using host OS's temp directory.
 func newlocal(hybridN, metaN, dataN int, binPath string) (*local, error) {
 	if metaN+hybridN < 1 {
-		panic("cluster must have at least three meta nodes")
+		panic("cluster must have at least one meta node")
 	} else if dataN+hybridN < 1 {
 		panic("cluster must have at least one data node")
 	}
