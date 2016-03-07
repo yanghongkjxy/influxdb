@@ -50,27 +50,51 @@ type Cluster interface {
 
 	// WriteAny writes the provided points to an arbitrary node in the
 	// cluster.
-	WriteAny(database string, points ...string) response
+	WriteAny(config client.BatchPointsConfig, points ...string) response
 
 	// Write the provided points to the specified node.
-	Write(id int, database string, points ...string) response
+	Write(id int, config client.BatchPointsConfig, points ...string) response
 
 	// NewDatabase generates a database name and creates it in the
 	// cluster. It's possible to provide certain functional options to
 	// which will be applied in order after the database is created.
 	NewDatabase(options ...newDBOption) (string, error)
+
+	// Info returns information about the configuration of the
+	// cluster.
+	Info() ClusterInformation
+}
+
+// ClusterInformation provides information about the cluster.
+type ClusterInformation struct {
+	// Number of data nodes in the cluster
+	DataN int
+	// TODO(edd) more fields to add I'm sure...
 }
 
 // A newDBOption is a functional option that provides some extra setup
 // when creating a new Database.
 type newDBOption func(c Cluster, name string) error
 
-// withDefaultRP builds a functional option for NewDatabase that sets
+// withRP returns a functional option for NewDatabase that createa a new
+// retention policy on the database. The retention policy will not be
+// set as the default.
+var withRP = func(name string, duration time.Duration, replication int) newDBOption {
+	return func(c Cluster, dbName string) error {
+		cmd := fmt.Sprintf("CREATE RETENTION POLICY %q ON %q DURATION %dm REPLICATION %d", name, dbName, int(duration.Minutes()), replication)
+		if qr := c.QueryAny(cmd, ""); qr.err != nil {
+			return qr.err
+		}
+		return nil
+	}
+}
+
+// withDefaultRP returns a functional option for NewDatabase that sets
 // the default retention policy after the database is created.
 var withDefaultRP = func(duration time.Duration, replication int) newDBOption {
 	return func(c Cluster, name string) error {
-		alterRPCMD := fmt.Sprintf("ALTER RETENTION POLICY %q ON %q DURATION %dm REPLICATION %d", "default", name, int(duration.Minutes()), replication)
-		if qr := c.QueryAny(alterRPCMD, ""); qr.err != nil {
+		cmd := fmt.Sprintf("ALTER RETENTION POLICY %q ON %q DURATION %dm REPLICATION %d", "default", name, int(duration.Minutes()), replication)
+		if qr := c.QueryAny(cmd, ""); qr.err != nil {
 			return qr.err
 		}
 		return nil
@@ -217,6 +241,15 @@ func newlocal(hybridN, metaN, dataN int, binPath string) (*local, error) {
 	}
 
 	return c, nil
+}
+
+func (c *local) Info() ClusterInformation {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return ClusterInformation{
+		DataN: c.dataN,
+	}
 }
 
 // Start starts all of the Influxd processes in the cluster.
@@ -450,7 +483,7 @@ func (c *local) query(id int, cmd string, database string) response {
 	return resp
 }
 
-func (c *local) WriteAny(database string, points ...string) response {
+func (c *local) WriteAny(config client.BatchPointsConfig, points ...string) response {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -459,19 +492,19 @@ func (c *local) WriteAny(database string, points ...string) response {
 		chosen = id
 		break
 	}
-	return c.Write(chosen, database, points...)
+	return c.Write(chosen, config, points...)
 }
 
 // Write writes the provided points on the specified node.
-func (c *local) Write(id int, database string, points ...string) response {
+func (c *local) Write(id int, config client.BatchPointsConfig, points ...string) response {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.write(id, database, points...)
+	return c.write(id, config, points...)
 }
 
 // write writes the provided points on the specified node.
 // Callers must manage a read lock on the local cluster appropriately.
-func (c *local) write(id int, database string, points ...string) response {
+func (c *local) write(id int, config client.BatchPointsConfig, points ...string) response {
 	resp := response{nodeID: id}
 
 	// Get client for node.
@@ -488,11 +521,12 @@ func (c *local) write(id int, database string, points ...string) response {
 		return resp
 	}
 
-	bp, err := client.NewBatchPoints(client.BatchPointsConfig{
-		WriteConsistency: "all",
-		RetentionPolicy:  "default",
-		Database:         database,
-	})
+	// Set some defaults on the config.
+	if config.WriteConsistency == "" {
+		config.WriteConsistency = "all"
+	}
+
+	bp, err := client.NewBatchPoints(config)
 	if err != nil {
 		resp.err = err
 		return resp
@@ -550,6 +584,23 @@ func (c *local) NewDatabaseWithDefaultRP(duration time.Duration, replication int
 		return "", qr.err
 	}
 	return name, nil
+}
+
+// NodesHavingPath counts how many data nodes in the cluster have the
+// specified path in their data directory.
+// The provided path should be relative to the node's data directory.
+func (c *local) NodesHavingPath(pth string) (int, error) {
+	var count int
+	for id := range c.dataNodes {
+		nPath := path.Join(c.baseDir, fmt.Sprintf("n%d/.influxdb", id), "data", pth)
+		_, err := os.Stat(nPath)
+		if err != nil && !os.IsNotExist(err) {
+			return 0, err
+		} else if err == nil {
+			count++
+		}
+	}
+	return count, nil
 }
 
 // generateJoinArg generate a join string for joining to all the meta

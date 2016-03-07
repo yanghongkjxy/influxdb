@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/influxdata/influxdb/client/v2"
+
 	"github.com/influxdata/influxdb/uuid"
 )
 
@@ -50,9 +52,10 @@ func TestCreateWriteShowMeasurements(t *testing.T) {
 		// due to the retention policy.
 		var (
 			measurement   = "cpu"
+			config        = client.BatchPointsConfig{Database: dbName}
 			lastNodeWrite int
 		)
-		resp := clst.WriteAny(dbName, fmat("%s value=%d", measurement, i))
+		resp := clst.WriteAny(config, fmat("%s value=%d", measurement, i))
 		if resp.err != nil {
 			t.Fatal(resp.err)
 		}

@@ -7,6 +7,8 @@ import (
 	"os/signal"
 	"testing"
 	"time"
+
+	"github.com/influxdata/influxdb/client/v2"
 )
 
 // NOTE: clst is not threadsafe. It is assumed (for the moment) that it
@@ -104,6 +106,59 @@ func TestShowDropDatabase(t *testing.T) {
 	}
 }
 
+// TestDropDatabase_Local tests that when a database is dropped, the
+// associated data directories are cleaned up on data nodes.
+func TestDropDatabase_Local(t *testing.T) {
+	t.Parallel()
+	defer checkPanic(t)
+
+	// This can only run on a local cluster.
+	lclst, ok := clst.(*local)
+	if !ok {
+		t.Skip("Skipping on non-local cluster")
+	}
+
+	dbName, err := clst.NewDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Using database: %s", dbName)
+
+	config := client.BatchPointsConfig{Database: dbName}
+	resp := clst.WriteAny(config, "cpu value=1")
+	if resp.err != nil {
+		t.Fatal(resp.err)
+	}
+	t.Logf("[node %d] point written.", resp.nodeID)
+
+	// Verify that the database exists on all nodes in the cluster.
+	t.Logf("Verifying %d nodes have database %s directory", clst.Info().DataN, dbName)
+	got, err := lclst.NodesHavingPath(dbName)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if exp := clst.Info().DataN; got != exp {
+		t.Fatalf("%d nodes have the required path on disk, expected %d", got, exp)
+	}
+
+	// When the database is dropped, the directory should be removed
+	// from all data nodes.
+	t.Logf("Dropping database %s", dbName)
+	if qr := clst.QueryAny(fmat("DROP DATABASE %q", dbName), ""); qr.err != nil {
+		t.Fatalf("[node %d] %v", qr.nodeID, qr.err)
+	}
+
+	t.Logf("Verifying %d nodes no longer have database directory", 0)
+	if got, err = lclst.NodesHavingPath(dbName); err != nil {
+		t.Fatal(err)
+	}
+
+	if exp := 0; got != exp {
+		t.Fatalf("%d nodes have the required path on disk, expected %d", got, exp)
+	}
+}
+
 // TestDropMeasurement tests that a measurement written to all data nodes
 // is dropped from all data nodes.
 func TestDropMeasurement(t *testing.T) {
@@ -117,8 +172,12 @@ func TestDropMeasurement(t *testing.T) {
 	t.Logf("Using database: %s", dbName)
 
 	// Insert a measurement.
-	var measurement = "cpu"
-	resp := clst.WriteAny(dbName, fmat("%s value=1", measurement))
+	var (
+		measurement = "cpu"
+		config      = client.BatchPointsConfig{Database: dbName}
+	)
+
+	resp := clst.WriteAny(config, fmat("%s value=1", measurement))
 	if resp.err != nil {
 		t.Fatal(resp.err)
 	}
@@ -126,17 +185,7 @@ func TestDropMeasurement(t *testing.T) {
 
 	// Verify that the measurement is available on all nodes.
 	t.Logf("Verifying nodes have measurement %s", measurement)
-	for resp := range clst.QueryAll("SHOW MEASUREMENTS", dbName) {
-		result, err := parseResult(ShowMeasurements, resp.result)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if !result.HasMeasurement(measurement) {
-			t.Fatalf("Node %d does not have measurement %s", resp.nodeID, measurement)
-		}
-		t.Logf("Node %d has measurement %s", resp.nodeID, measurement)
-	}
+	verifyMeasurementAll(t, dbName, measurement, true)
 
 	// When the measurement is dropped, it should be dropped on all
 	// nodes.
@@ -146,18 +195,7 @@ func TestDropMeasurement(t *testing.T) {
 	}
 
 	t.Logf("Verifying all nodes have dropped measurement %s", measurement)
-	for resp := range clst.QueryAll("SHOW MEASUREMENTS", dbName) {
-		result, err := parseResult(ShowMeasurements, resp.result)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if result.HasMeasurement(measurement) {
-			t.Errorf("Node %d still has measurement %s", resp.nodeID, measurement)
-		} else {
-			t.Logf("Node %d dropped measurement %s", resp.nodeID, measurement)
-		}
-	}
+	verifyMeasurementAll(t, dbName, measurement, false)
 }
 
 // TestShowMeasurements tests that a measurement is available on all
@@ -174,8 +212,12 @@ func TestShowMeasurements(t *testing.T) {
 
 	// Insert a measurement. It will only be stored on a single node
 	// due to the retention policy.
-	var measurement = "cpu"
-	resp := clst.WriteAny(dbName, fmat("%s value=1", measurement))
+	var (
+		measurement = "cpu"
+		config      = client.BatchPointsConfig{Database: dbName}
+	)
+
+	resp := clst.WriteAny(config, fmat("%s value=1", measurement))
 	if resp.err != nil {
 		t.Fatal(resp.err)
 	}
@@ -183,17 +225,7 @@ func TestShowMeasurements(t *testing.T) {
 
 	// Verify that the cpu measurement is available on all nodes.
 	t.Logf("Verifying all nodes have measurement %s", measurement)
-	for resp := range clst.QueryAll("SHOW MEASUREMENTS", dbName) {
-		result, err := parseResult(ShowMeasurements, resp.result)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if !result.HasMeasurement(measurement) {
-			t.Fatalf("Node %d does not have measurement %s", resp.nodeID, measurement)
-		}
-		t.Logf("Node %d has measurement %s", resp.nodeID, measurement)
-	}
+	verifyMeasurementAll(t, dbName, measurement, true)
 }
 
 // TestDropSeries tests that a series written to all nodes is dropped
@@ -209,8 +241,12 @@ func TestDropSeries(t *testing.T) {
 	t.Logf("Using database: %s", dbName)
 
 	// Insert some measurements.
-	var seriesMeasure = "cpu"
-	resp := clst.WriteAny(dbName,
+	var (
+		seriesMeasure = "cpu"
+		config        = client.BatchPointsConfig{Database: dbName}
+	)
+
+	resp := clst.WriteAny(config,
 		fmat("%s,foo=bar value=1", seriesMeasure),
 		fmat("%s value=20", seriesMeasure),
 		"other_measure value=2",
@@ -272,8 +308,12 @@ func TestShowSeries(t *testing.T) {
 	t.Logf("Using database: %s", dbName)
 
 	// Insert a series.
-	var seriesMeasure = "cpu"
-	resp := clst.WriteAny(dbName, fmat("%s value=1", seriesMeasure))
+	var (
+		seriesMeasure = "cpu"
+		config        = client.BatchPointsConfig{Database: dbName}
+	)
+
+	resp := clst.WriteAny(config, fmat("%s value=1", seriesMeasure))
 	if resp.err != nil {
 		t.Fatal(resp.err)
 	}
@@ -309,8 +349,12 @@ func TestShowTagKeys(t *testing.T) {
 	t.Logf("Using database: %s", dbName)
 
 	// Write some series with tag keys.
-	var seriesMeasures = []string{"cpu", "memory"}
-	resp := clst.WriteAny(dbName,
+	var (
+		seriesMeasures = []string{"cpu", "memory"}
+		config         = client.BatchPointsConfig{Database: dbName}
+	)
+
+	resp := clst.WriteAny(config,
 		fmat("%s,foo=bar,zah=zoo value=1", seriesMeasures[0]),
 		fmat("%s,a=b value=20", seriesMeasures[1]),
 	)
@@ -356,8 +400,11 @@ func TestShowTagValues(t *testing.T) {
 	t.Logf("Using database: %s", dbName)
 
 	// Write some series with tag values.
-	var seriesMeasures = []string{"cpu", "memory"}
-	resp := clst.WriteAny(dbName,
+	var (
+		seriesMeasures = []string{"cpu", "memory"}
+		config         = client.BatchPointsConfig{Database: dbName}
+	)
+	resp := clst.WriteAny(config,
 		fmat("%s,foo=bar,zah=zoo value=1", seriesMeasures[0]),
 		fmat("%s,a=b value=20", seriesMeasures[1]),
 	)
@@ -404,8 +451,12 @@ func TestShowFieldKeys(t *testing.T) {
 	t.Logf("Using database: %s", dbName)
 
 	// Write some series with tag keys.
-	var seriesMeasures = []string{"cpu", "memory"}
-	resp := clst.WriteAny(dbName,
+	var (
+		seriesMeasures = []string{"cpu", "memory"}
+		config         = client.BatchPointsConfig{Database: dbName}
+	)
+
+	resp := clst.WriteAny(config,
 		fmat(`%s value=1,boo="zoo"`, seriesMeasures[0]),
 		fmat("%s,a=b power=20", seriesMeasures[1]),
 	)
@@ -434,6 +485,98 @@ func TestShowFieldKeys(t *testing.T) {
 			t.Logf("Node %d has all expected tag keys for measurement %s", resp.nodeID, measure)
 		}
 
+	}
+}
+
+func TestDropRetentionPolicy(t *testing.T) {
+	t.Skip("TODO")
+}
+
+// TestDropRetentionPolicy_Local tests that a dropped retention policy
+// results in the retention policy data being removed from all data
+// nodes.
+func TestDropRetentionPolicy_Local(t *testing.T) {
+	t.Parallel()
+	defer checkPanic(t)
+
+	// This can only run on a local cluster.
+	lclst, ok := clst.(*local)
+	if !ok {
+		t.Skip("Skipping on non-local cluster")
+	}
+
+	rpName := "rp0"
+	dbName, err := lclst.NewDatabase(withRP(rpName, time.Hour, lclst.Info().DataN))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Using database: %s", dbName)
+
+	// Make the retention policy default
+	resp := clst.QueryAny(fmat("ALTER RETENTION POLICY %q ON %q DEFAULT", rpName, dbName), dbName)
+	if resp.err != nil {
+		t.Fatal(resp.err)
+	}
+
+	// Insert a measurement using the created retention policy.
+	var (
+		measurement = "cpu"
+		config      = client.BatchPointsConfig{
+			Database:        dbName,
+			RetentionPolicy: rpName,
+		}
+	)
+
+	if resp = clst.WriteAny(config, fmat("%s value=1", measurement)); resp.err != nil {
+		t.Fatal(resp.err)
+	}
+	t.Logf("[node %d] point written.", resp.nodeID)
+
+	t.Logf("Verifying retention policy %q directory exists on all nodes", rpName)
+	path := fmt.Sprintf("%s/%s", dbName, rpName)
+	got, err := lclst.NodesHavingPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if exp := lclst.Info().DataN; got != exp {
+		t.Fatalf("%d nodes have the required path on disk, expected %d", got, exp)
+	}
+
+	t.Logf("Dropping retention policy %s", rpName)
+	if resp = clst.QueryAny(fmat("DROP RETENTION POLICY %q ON %q", rpName, dbName), dbName); resp.err != nil {
+		t.Fatal(resp.err)
+	}
+
+	t.Logf("Verify nodes no longer have the retention policy %q directory", rpName)
+	if got, err = lclst.NodesHavingPath(path); err != nil {
+		t.Fatal(err)
+	}
+	if exp := 0; got != exp {
+		t.Fatalf("%d nodes have the required path on disk, expected %d", got, exp)
+	}
+}
+
+// verifyMeasurementAll verifies that all nodes in the cluster have (or
+// don't have), the specified measurement.
+func verifyMeasurementAll(t *testing.T, dbName, measurement string, want bool) {
+	for resp := range clst.QueryAll("SHOW MEASUREMENTS", dbName) {
+		result, err := parseResult(ShowMeasurements, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		have := result.HasMeasurement(measurement)
+		switch {
+		case want && !have:
+			t.Fatalf("Node %d does not have measurement %s", resp.nodeID, measurement)
+		case !want && have:
+			t.Fatalf("Node %d has measurement %s", resp.nodeID, measurement)
+		case want:
+			t.Logf("Node %d has measurement %s", resp.nodeID, measurement)
+		default:
+			t.Logf("Node %d does not have measurement %s", resp.nodeID, measurement)
+		}
 	}
 }
 
