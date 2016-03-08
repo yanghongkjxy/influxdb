@@ -229,7 +229,7 @@ func parseResult(c command, result client.Result) (*commandResult, error) {
 				}
 				res.tagKeys[row.Name] = append(res.tagKeys[row.Name], tagKey)
 			case ShowTagValues:
-				tvIDX, err := columnIDX("tagValue", row.Columns)
+				tvIDX, err := columnIDX("value", row.Columns)
 				if err != nil {
 					return nil, err
 				}

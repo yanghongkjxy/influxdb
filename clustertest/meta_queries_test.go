@@ -389,7 +389,6 @@ func TestShowTagKeys(t *testing.T) {
 func TestShowTagValues(t *testing.T) {
 	t.Parallel()
 	defer checkPanic(t)
-	t.Skip("Waiting on some work")
 
 	// Create a database with a retention policy that ensure data
 	// only written to one node.
@@ -399,35 +398,41 @@ func TestShowTagValues(t *testing.T) {
 	}
 	t.Logf("Using database: %s", dbName)
 
-	// Write some series with tag values.
 	var (
-		seriesMeasures = []string{"cpu", "memory"}
-		config         = client.BatchPointsConfig{Database: dbName}
+		tagKey = "foo"
+		config = client.BatchPointsConfig{Database: dbName}
+		resp   response
 	)
-	resp := clst.WriteAny(config,
-		fmat("%s,foo=bar,zah=zoo value=1", seriesMeasures[0]),
-		fmat("%s,a=b value=20", seriesMeasures[1]),
-	)
-	if resp.err != nil {
+
+	// Write some series with tag values.
+	if resp = clst.WriteAny(config,
+		fmat("cpu,%s=bar,zah=zoo value=1", tagKey),
+		fmat("cpu,%s=foo value=3", tagKey),
+		fmat("memory,a=b,%s=zoo value=20", tagKey),
+	); resp.err != nil {
 		t.Fatal(resp.err)
 	}
 	t.Logf("[node %d] point written.", resp.nodeID)
 
-	// Verify that the tag keys are available on all nodes.
-	expectedValues := map[string][]string{
-		seriesMeasures[0]: []string{"bah", "zoo"},
-		seriesMeasures[1]: []string{"b"},
+	// Verify that the tag values are available on all nodes.
+	expected := map[string][]string{
+		"cpu":    []string{"bar", "foo"},
+		"memory": []string{"zoo"},
 	}
 
 	t.Log("Verify nodes have tag values for all written series")
-	for resp := range clst.QueryAll("SHOW TAG VALUES", dbName) {
+	for resp := range clst.QueryAll(fmat("SHOW TAG VALUES WITH KEY = %q", tagKey), dbName) {
+		if resp.err != nil {
+			t.Fatal(resp.err)
+		}
+
 		result, err := parseResult(ShowTagValues, resp.result)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		for measure, tvs := range expectedValues {
-			if !result.HasTagKeys(measure, tvs) {
+		for measure, tvs := range expected {
+			if !result.HasTagValues(measure, tvs) {
 				t.Fatalf("Node %d does not have tag values %v for measurement %s", resp.nodeID, tvs, measure)
 			}
 			t.Logf("Node %d has all expected tag values for measurement %s", resp.nodeID, measure)
