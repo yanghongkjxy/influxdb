@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"time"
 
 	"github.com/influxdata/influxdb/client/v2"
 )
@@ -21,18 +22,32 @@ const (
 	ShowTagKeys
 	ShowTagValues
 	ShowFieldKeys
+	ShowRetentionPolicies
 )
 
 // commandResult contains parsed data from a query result.
 type commandResult struct {
-	dataServers  map[int]string
-	metaServers  map[int]string
-	databases    []string
-	measurements []string
-	series       map[string][]string
-	tagKeys      map[string][]string
-	tagValues    map[string][]string
-	fieldKeys    map[string][]string
+	dataServers       map[int]string
+	metaServers       map[int]string
+	databases         []string
+	measurements      []string
+	series            map[string][]string
+	tagKeys           map[string][]string
+	tagValues         map[string][]string
+	fieldKeys         map[string][]string
+	retentionPolicies map[string]retentionPolicy
+}
+
+// retentionPolicy contains parsed retention policy data.
+type retentionPolicy struct {
+	Name        string
+	Duration    time.Duration
+	Replication int
+	IsDefault   bool
+}
+
+func (rp retentionPolicy) String() string {
+	return fmt.Sprintf("%s\t%v\t%v\t%v", rp.Name, rp.Duration, rp.Replication, rp.IsDefault)
 }
 
 // HasDatabase determines if the parsed result contains a database
@@ -127,6 +142,16 @@ func (r commandResult) HasFieldKeys(measurement string, fieldKeys []string) bool
 	return reflect.DeepEqual(got, fieldKeys)
 }
 
+// HasRetentionPolicy determines if the commandResult contains the
+// provided retention policy.
+func (r commandResult) HasRetentionPolicy(rp retentionPolicy) bool {
+	got, ok := r.retentionPolicies[rp.Name]
+	if !ok {
+		return false
+	}
+	return reflect.DeepEqual(got, rp)
+}
+
 // parseResult parses the client result.
 //
 // Currently parseResult only supports the results of:
@@ -138,13 +163,15 @@ func (r commandResult) HasFieldKeys(measurement string, fieldKeys []string) bool
 // - SHOW TAG KEYS
 // - SHOW TAG VALUES
 // - SHOW FIELD KEYS
+// - SHOW RETENTION POLICIES
 //
 func parseResult(c command, result client.Result) (*commandResult, error) {
 	res := &commandResult{
-		series:    make(map[string][]string),
-		tagKeys:   make(map[string][]string),
-		tagValues: make(map[string][]string),
-		fieldKeys: make(map[string][]string),
+		series:            make(map[string][]string),
+		tagKeys:           make(map[string][]string),
+		tagValues:         make(map[string][]string),
+		fieldKeys:         make(map[string][]string),
+		retentionPolicies: make(map[string]retentionPolicy),
 	}
 
 	for _, row := range result.Series {
@@ -178,7 +205,7 @@ func parseResult(c command, result client.Result) (*commandResult, error) {
 
 				addr, ok := value[addrIDX].(string)
 				if !ok {
-					return nil, fmt.Errorf("could not parse %v as string", value[addrIDX])
+					return nil, parseStringError(value[addrIDX])
 				}
 
 				switch row.Name {
@@ -203,7 +230,7 @@ func parseResult(c command, result client.Result) (*commandResult, error) {
 
 				name, ok := value[idx].(string)
 				if !ok {
-					return nil, fmt.Errorf("could not parse %v as string", value[idx])
+					return nil, parseStringError(value[idx])
 				}
 
 				res.databases = append(res.databases, name)
@@ -215,7 +242,7 @@ func parseResult(c command, result client.Result) (*commandResult, error) {
 
 				name, ok := value[idx].(string)
 				if !ok {
-					return nil, fmt.Errorf("could not parse %v as string", value[idx])
+					return nil, parseStringError(value[idx])
 				}
 				res.measurements = append(res.measurements, name)
 			case ShowSeries:
@@ -226,7 +253,7 @@ func parseResult(c command, result client.Result) (*commandResult, error) {
 
 				key, ok := value[idx].(string)
 				if !ok {
-					return nil, fmt.Errorf("could not parse %v as string", value[idx])
+					return nil, parseStringError(value[idx])
 				}
 				res.series[row.Name] = append(res.series[row.Name], key)
 			case ShowTagKeys:
@@ -237,7 +264,7 @@ func parseResult(c command, result client.Result) (*commandResult, error) {
 
 				tagKey, ok := value[tkIDX].(string)
 				if !ok {
-					return nil, fmt.Errorf("could not parse %v as string", value[tkIDX])
+					return nil, parseStringError(value[tkIDX])
 				}
 				res.tagKeys[row.Name] = append(res.tagKeys[row.Name], tagKey)
 			case ShowTagValues:
@@ -248,7 +275,7 @@ func parseResult(c command, result client.Result) (*commandResult, error) {
 
 				tagValue, ok := value[tvIDX].(string)
 				if !ok {
-					return nil, fmt.Errorf("could not parse %v as string", value[tvIDX])
+					return nil, parseStringError(value[tvIDX])
 				}
 				res.tagValues[row.Name] = append(res.tagValues[row.Name], tagValue)
 			case ShowFieldKeys:
@@ -259,15 +286,59 @@ func parseResult(c command, result client.Result) (*commandResult, error) {
 
 				fieldKey, ok := value[fkIDX].(string)
 				if !ok {
-					return nil, fmt.Errorf("could not parse %v as string", value[fkIDX])
+					return nil, parseStringError(value[fkIDX])
 				}
 				res.fieldKeys[row.Name] = append(res.fieldKeys[row.Name], fieldKey)
+			case ShowRetentionPolicies:
+				var (
+					labels = []string{"name", "duration", "replicaN", "default"}
+					idxs   = make([]int, 4)
+					rp     retentionPolicy
+					err    error
+					ok     bool
+				)
+
+				for i := 0; i < len(labels); i++ {
+					if idxs[i], err = columnIDX(labels[i], row.Columns); err != nil {
+						return nil, err
+					}
+				}
+
+				if rp.Name, ok = value[idxs[0]].(string); !ok {
+					return nil, parseStringError(value[idxs[0]])
+				}
+
+				ds, ok := value[idxs[1]].(string)
+				if !ok {
+					return nil, parseStringError(value[idxs[1]])
+				}
+
+				if rp.Duration, err = time.ParseDuration(ds); err != nil {
+					return nil, err
+				}
+
+				if rp.Replication, err = toInt(value[idxs[2]]); err != nil {
+					return nil, err
+				}
+
+				if rp.IsDefault, ok = value[idxs[3]].(bool); !ok {
+					return nil, parseBoolError(value[idxs[3]])
+				}
+				res.retentionPolicies[rp.Name] = rp
 			default:
 				panic("unable to parse this command")
 			}
 		}
 	}
 	return res, nil
+}
+
+func parseStringError(v interface{}) error {
+	return fmt.Errorf("could not parse %[1]v (%[1]T) as string", v)
+}
+
+func parseBoolError(v interface{}) error {
+	return fmt.Errorf("could not parse %[1]v (%[1]T) as bool", v)
 }
 
 // columnIDX determines which series index refers to the column named s.

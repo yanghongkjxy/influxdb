@@ -39,6 +39,7 @@ func TestCreateDropDatabase(t *testing.T) {
 func TestCreateWriteShowMeasurements(t *testing.T) {
 	n := 100
 
+	t.Skip("Does tests like this one make sense?")
 	t.Parallel()
 	defer checkPanic(t)
 

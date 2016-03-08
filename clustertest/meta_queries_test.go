@@ -42,7 +42,7 @@ func TestMain(m *testing.M) {
 
 	if code > 0 && *inspect {
 		c := make(chan os.Signal, 1)
-		fmt.Println("Pausing test process for inspection. Send SIGTERM to exit (Ctrl + c)")
+		fmt.Println("Pausing tests for inspection. Send SIGTERM to exit (Ctrl + c)")
 		signal.Notify(c, os.Interrupt)
 		<-c
 		fmt.Println("SIGTERM received. Shutting down gracefully.")
@@ -476,7 +476,58 @@ func TestShowFieldKeys(t *testing.T) {
 }
 
 func TestDropRetentionPolicy(t *testing.T) {
-	t.Skip("TODO")
+	t.Parallel()
+	defer checkPanic(t)
+
+	expected := retentionPolicy{
+		Name:        "rp0",
+		Duration:    time.Hour,
+		Replication: clst.Info().DataN,
+		IsDefault:   false,
+	}
+
+	dbName, err := clst.NewDatabase(withRP(expected.Name, expected.Duration, expected.Replication))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Using database: %s", dbName)
+
+	t.Logf("Verifying retention policy %q exists on all nodes", expected.Name)
+	for resp := range clst.QueryAll(fmat("SHOW RETENTION POLICIES ON %q", dbName), "") {
+		if resp.err != nil {
+			t.Fatal(resp.err)
+		}
+
+		result, err := parseResult(ShowRetentionPolicies, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !result.HasRetentionPolicy(expected) {
+			t.Fatalf("retention policy %v does not exist on node %d", expected, resp.nodeID)
+		}
+	}
+
+	t.Logf("Dropping retention policy %s", expected.Name)
+	if resp := clst.QueryAny(fmat("DROP RETENTION POLICY %q ON %q", expected.Name, dbName), ""); resp.err != nil {
+		t.Fatal(resp.err)
+	}
+
+	t.Log("Verify nodes no longer have the retention policy")
+	for resp := range clst.QueryAll(fmat("SHOW RETENTION POLICIES ON %q", dbName), "") {
+		if resp.err != nil {
+			t.Fatal(resp.err)
+		}
+
+		result, err := parseResult(ShowRetentionPolicies, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if result.HasRetentionPolicy(expected) {
+			t.Fatalf("retention policy %v still exists on node %d", expected, resp.nodeID)
+		}
+	}
 }
 
 // TestDropRetentionPolicy_Local tests that a dropped retention policy
@@ -500,7 +551,7 @@ func TestDropRetentionPolicy_Local(t *testing.T) {
 	t.Logf("Using database: %s", dbName)
 
 	// Make the retention policy default
-	resp := clst.QueryAny(fmat("ALTER RETENTION POLICY %q ON %q DEFAULT", rpName, dbName), dbName)
+	resp := clst.QueryAny(fmat("ALTER RETENTION POLICY %q ON %q DEFAULT", rpName, dbName), "")
 	if resp.err != nil {
 		t.Fatal(resp.err)
 	}
@@ -531,7 +582,7 @@ func TestDropRetentionPolicy_Local(t *testing.T) {
 	}
 
 	t.Logf("Dropping retention policy %s", rpName)
-	if resp = clst.QueryAny(fmat("DROP RETENTION POLICY %q ON %q", rpName, dbName), dbName); resp.err != nil {
+	if resp = clst.QueryAny(fmat("DROP RETENTION POLICY %q ON %q", rpName, dbName), ""); resp.err != nil {
 		t.Fatal(resp.err)
 	}
 
