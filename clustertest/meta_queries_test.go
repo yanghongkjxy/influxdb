@@ -74,6 +74,10 @@ func TestShowDropDatabase(t *testing.T) {
 	// Verify that the database exists on all nodes in the cluster.
 	t.Logf("Verifying nodes have database database %s", dbName)
 	for resp := range clst.QueryAll("SHOW DATABASES", "") {
+		if resp.err != nil {
+			t.Fatal(resp.err)
+		}
+
 		result, err := parseResult(ShowDatabases, resp.result)
 		if err != nil {
 			t.Fatal(err)
@@ -244,31 +248,23 @@ func TestDropSeries(t *testing.T) {
 	var (
 		seriesMeasure = "cpu"
 		config        = client.BatchPointsConfig{Database: dbName}
+		resp          response
 	)
 
-	resp := clst.WriteAny(config,
-		fmat("%s,foo=bar value=1", seriesMeasure),
-		fmat("%s value=20", seriesMeasure),
+	if resp = clst.WriteAny(config,
+		"cpu,foo=bar value=1",
+		"cpu value=20",
 		"other_measure value=2",
-	)
-	if resp.err != nil {
+	); resp.err != nil {
 		t.Fatal(resp.err)
 	}
 	t.Logf("[node %d] point written.", resp.nodeID)
 
-	// Verify that the cpu series are available on all nodes.
-	t.Logf("Verify nodes have series for measurement %s", seriesMeasure)
-	for resp := range clst.QueryAll("SHOW SERIES", dbName) {
-		result, err := parseResult(ShowSeries, resp.result)
-		if err != nil {
-			t.Fatal(err)
-		}
+	expected := []string{"cpu", "cpu,foo=bar"}
 
-		if !result.HasSeriesForMeasurement(seriesMeasure) {
-			t.Fatalf("Node %d does not have any series for measurement %s", resp.nodeID, seriesMeasure)
-		}
-		t.Logf("Node %d has series for measurement %s", resp.nodeID, seriesMeasure)
-	}
+	// Verify that the cpu series are available on all nodes.
+	t.Log("Verify nodes have series for measurement cpu")
+	verifySeriesAll(t, dbName, "cpu", expected)
 
 	// Drop the series..
 	t.Logf("Dropping all series for measurement %s", seriesMeasure)
@@ -276,20 +272,9 @@ func TestDropSeries(t *testing.T) {
 		t.Fatalf("[node %d] %v", qr.nodeID, qr.err)
 	}
 
-	// Verify the series have been removed from
+	// Verify the series have been removed.
 	t.Logf("Verify nodes no longer have series for measurement %s", seriesMeasure)
-	for resp := range clst.QueryAll("SHOW SERIES", dbName) {
-		result, err := parseResult(ShowSeries, resp.result)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if result.HasSeriesForMeasurement(seriesMeasure) {
-			t.Errorf("Node %d still has series for measurement %s", resp.nodeID, seriesMeasure)
-		} else {
-			t.Logf("Node %d no longer has series for measurement %s", resp.nodeID, seriesMeasure)
-		}
-	}
+	verifySeriesAll(t, dbName, "cpu", []string{})
 }
 
 // TestShowSeries tests that a series is available on all data nodes
@@ -309,29 +294,18 @@ func TestShowSeries(t *testing.T) {
 
 	// Insert a series.
 	var (
-		seriesMeasure = "cpu"
-		config        = client.BatchPointsConfig{Database: dbName}
+		config = client.BatchPointsConfig{Database: dbName}
+		resp   response
 	)
 
-	resp := clst.WriteAny(config, fmat("%s value=1", seriesMeasure))
-	if resp.err != nil {
+	if resp = clst.WriteAny(config, "cpu value=1"); resp.err != nil {
 		t.Fatal(resp.err)
 	}
 	t.Logf("[node %d] point written.", resp.nodeID)
 
 	// Verify that the cpu series is available on all nodes.
-	t.Logf("Verify nodes have series for measurement %s", seriesMeasure)
-	for resp := range clst.QueryAll("SHOW SERIES", dbName) {
-		result, err := parseResult(ShowSeries, resp.result)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if !result.HasSeriesForMeasurement(seriesMeasure) {
-			t.Fatalf("Node %d does not have any series for measurement %s", resp.nodeID, seriesMeasure)
-		}
-		t.Logf("Node %d has series for measurement %s", resp.nodeID, seriesMeasure)
-	}
+	t.Log("Verify nodes have series for measurement cpu")
+	verifySeriesAll(t, dbName, "cpu", []string{"cpu"})
 }
 
 // TestShowTagKeys tests that tags keys for a series are available from
@@ -352,13 +326,13 @@ func TestShowTagKeys(t *testing.T) {
 	var (
 		seriesMeasures = []string{"cpu", "memory"}
 		config         = client.BatchPointsConfig{Database: dbName}
+		resp           response
 	)
 
-	resp := clst.WriteAny(config,
+	if resp = clst.WriteAny(config,
 		fmat("%s,foo=bar,zah=zoo value=1", seriesMeasures[0]),
 		fmat("%s,a=b value=20", seriesMeasures[1]),
-	)
-	if resp.err != nil {
+	); resp.err != nil {
 		t.Fatal(resp.err)
 	}
 	t.Logf("[node %d] point written.", resp.nodeID)
@@ -371,6 +345,10 @@ func TestShowTagKeys(t *testing.T) {
 
 	t.Log("Verify nodes have tag keys for all written series")
 	for resp := range clst.QueryAll("SHOW TAG KEYS", dbName) {
+		if resp.err != nil {
+			t.Fatal(resp.err)
+		}
+
 		result, err := parseResult(ShowTagKeys, resp.result)
 		if err != nil {
 			t.Fatal(err)
@@ -459,13 +437,13 @@ func TestShowFieldKeys(t *testing.T) {
 	var (
 		seriesMeasures = []string{"cpu", "memory"}
 		config         = client.BatchPointsConfig{Database: dbName}
+		resp           response
 	)
 
-	resp := clst.WriteAny(config,
+	if resp = clst.WriteAny(config,
 		fmat(`%s value=1,boo="zoo"`, seriesMeasures[0]),
 		fmat("%s,a=b power=20", seriesMeasures[1]),
-	)
-	if resp.err != nil {
+	); resp.err != nil {
 		t.Fatal(resp.err)
 	}
 	t.Logf("[node %d] point written.", resp.nodeID)
@@ -478,6 +456,10 @@ func TestShowFieldKeys(t *testing.T) {
 
 	t.Log("Verify nodes have tag keys for all written series")
 	for resp := range clst.QueryAll("SHOW FIELD KEYS", dbName) {
+		if resp.err != nil {
+			t.Fatal(resp.err)
+		}
+
 		result, err := parseResult(ShowFieldKeys, resp.result)
 		if err != nil {
 			t.Fatal(err)
@@ -566,6 +548,10 @@ func TestDropRetentionPolicy_Local(t *testing.T) {
 // don't have), the specified measurement.
 func verifyMeasurementAll(t *testing.T, dbName, measurement string, want bool) {
 	for resp := range clst.QueryAll("SHOW MEASUREMENTS", dbName) {
+		if resp.err != nil {
+			t.Fatal(resp.err)
+		}
+
 		result, err := parseResult(ShowMeasurements, resp.result)
 		if err != nil {
 			t.Fatal(err)
@@ -582,6 +568,26 @@ func verifyMeasurementAll(t *testing.T, dbName, measurement string, want bool) {
 		default:
 			t.Logf("Node %d does not have measurement %s", resp.nodeID, measurement)
 		}
+	}
+}
+
+// verifySeriesAll verifies that all nodes in the cluster have the given
+// series for the given measurement.
+func verifySeriesAll(t *testing.T, dbName, measurement string, series []string) {
+	for resp := range clst.QueryAll("SHOW SERIES", dbName) {
+		if resp.err != nil {
+			t.Fatal(resp.err)
+		}
+
+		result, err := parseResult(ShowSeries, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !result.HasSeries(measurement, series) {
+			t.Fatalf("Node %d does not have series %s for measurement %s", resp.nodeID, series, measurement)
+		}
+		t.Logf("Node %d has correct series for measurement %s", resp.nodeID, measurement)
 	}
 }
 

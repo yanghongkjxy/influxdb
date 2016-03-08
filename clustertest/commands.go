@@ -57,62 +57,74 @@ func (r commandResult) HasMeasurement(name string) bool {
 	return false
 }
 
-// HasSeriesForMeasurement returns true if the parsed result contains
-// any series that belongs to the measurement specified by name.
-func (r commandResult) HasSeriesForMeasurement(name string) bool {
-	_, ok := r.series[name]
-	return ok
+// HasSeries returns true if the parsed result contains the provided set
+// of series belonging to the provided measurement.
+func (r commandResult) HasSeries(measurement string, series []string) bool {
+	got, ok := r.series[measurement]
+	if !ok {
+		// It's OK if series doesn't exist if we're checking for that
+		// case.
+		return len(series) == 0
+	}
+
+	if len(got) != len(series) {
+		return false
+	}
+
+	sort.Strings(got)
+	sort.Strings(series)
+	return reflect.DeepEqual(got, series)
 }
 
 // HasTagKeys returns true if the result contains a measurement with
 // the provided tag key set only.
-func (r commandResult) HasTagKeys(measure string, tagKeys []string) bool {
-	tks, ok := r.tagKeys[measure]
+func (r commandResult) HasTagKeys(measurement string, tagKeys []string) bool {
+	got, ok := r.tagKeys[measurement]
 	if !ok {
 		return false
 	}
 
-	if len(tks) != len(tagKeys) {
+	if len(got) != len(tagKeys) {
 		return false
 	}
 
+	sort.Strings(got)
 	sort.Strings(tagKeys)
-	sort.Strings(tks)
-	return reflect.DeepEqual(tks, tagKeys)
+	return reflect.DeepEqual(got, tagKeys)
 }
 
 // HasTagValues returns true if the result contains a measurement with
 // the provided tag value set only.
-func (r commandResult) HasTagValues(measure string, tagValues []string) bool {
-	tvs, ok := r.tagValues[measure]
+func (r commandResult) HasTagValues(measurement string, tagValues []string) bool {
+	got, ok := r.tagValues[measurement]
 	if !ok {
 		return false
 	}
 
-	if len(tvs) != len(tagValues) {
+	if len(got) != len(tagValues) {
 		return false
 	}
 
+	sort.Strings(got)
 	sort.Strings(tagValues)
-	sort.Strings(tvs)
-	return reflect.DeepEqual(tvs, tagValues)
+	return reflect.DeepEqual(got, tagValues)
 }
 
 // HasFieldKeys returns true if the result contains a measurement with
 // the provided field key set only.
-func (r commandResult) HasFieldKeys(measure string, fieldKeys []string) bool {
-	fks, ok := r.fieldKeys[measure]
+func (r commandResult) HasFieldKeys(measurement string, fieldKeys []string) bool {
+	got, ok := r.fieldKeys[measurement]
 	if !ok {
 		return false
 	}
 
-	if len(fks) != len(fieldKeys) {
+	if len(got) != len(fieldKeys) {
 		return false
 	}
 
+	sort.Strings(got)
 	sort.Strings(fieldKeys)
-	sort.Strings(fks)
-	return reflect.DeepEqual(fks, fieldKeys)
+	return reflect.DeepEqual(got, fieldKeys)
 }
 
 // parseResult parses the client result.
