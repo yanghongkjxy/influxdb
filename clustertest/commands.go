@@ -31,7 +31,7 @@ type commandResult struct {
 	metaServers       map[int]string
 	databases         []string
 	measurements      []string
-	series            map[string][]string
+	series            []string
 	tagKeys           map[string][]string
 	tagValues         map[string][]string
 	fieldKeys         map[string][]string
@@ -73,22 +73,15 @@ func (r commandResult) HasMeasurement(name string) bool {
 }
 
 // HasSeries returns true if the parsed result contains the provided set
-// of series belonging to the provided measurement.
-func (r commandResult) HasSeries(measurement string, series []string) bool {
-	got, ok := r.series[measurement]
-	if !ok {
-		// It's OK if series doesn't exist if we're checking for that
-		// case.
-		return len(series) == 0
-	}
-
-	if len(got) != len(series) {
+// of series.
+func (r commandResult) HasSeries(series []string) bool {
+	if len(r.series) != len(series) {
 		return false
 	}
 
-	sort.Strings(got)
+	sort.Strings(r.series)
 	sort.Strings(series)
-	return reflect.DeepEqual(got, series)
+	return reflect.DeepEqual(r.series, series)
 }
 
 // HasTagKeys returns true if the result contains a measurement with
@@ -167,7 +160,6 @@ func (r commandResult) HasRetentionPolicy(rp retentionPolicy) bool {
 //
 func parseResult(c command, result client.Result) (*commandResult, error) {
 	res := &commandResult{
-		series:            make(map[string][]string),
 		tagKeys:           make(map[string][]string),
 		tagValues:         make(map[string][]string),
 		fieldKeys:         make(map[string][]string),
@@ -246,7 +238,7 @@ func parseResult(c command, result client.Result) (*commandResult, error) {
 				}
 				res.measurements = append(res.measurements, name)
 			case ShowSeries:
-				idx, err := columnIDX("_key", row.Columns)
+				idx, err := columnIDX("key", row.Columns)
 				if err != nil {
 					return nil, err
 				}
@@ -255,7 +247,7 @@ func parseResult(c command, result client.Result) (*commandResult, error) {
 				if !ok {
 					return nil, parseStringError(value[idx])
 				}
-				res.series[row.Name] = append(res.series[row.Name], key)
+				res.series = append(res.series, key)
 			case ShowTagKeys:
 				tkIDX, err := columnIDX("tagKey", row.Columns)
 				if err != nil {

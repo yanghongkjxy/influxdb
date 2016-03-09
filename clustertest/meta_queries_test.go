@@ -264,7 +264,7 @@ func TestDropSeries(t *testing.T) {
 
 	// Verify that the cpu series are available on all nodes.
 	t.Log("Verify nodes have series for measurement cpu")
-	verifySeriesAll(t, dbName, "cpu", expected)
+	verifySeriesAll(t, dbName, expected)
 
 	// Drop the series..
 	t.Logf("Dropping all series for measurement %s", seriesMeasure)
@@ -274,7 +274,7 @@ func TestDropSeries(t *testing.T) {
 
 	// Verify the series have been removed.
 	t.Logf("Verify nodes no longer have series for measurement %s", seriesMeasure)
-	verifySeriesAll(t, dbName, "cpu", []string{})
+	verifySeriesAll(t, dbName, []string{})
 }
 
 // TestShowSeries tests that a series is available on all data nodes
@@ -282,7 +282,6 @@ func TestDropSeries(t *testing.T) {
 func TestShowSeries(t *testing.T) {
 	t.Parallel()
 	defer checkPanic(t)
-	t.Skip("Waiting on some work")
 
 	// Create a database with a retentention policy that ensure data
 	// only written to one node.
@@ -305,7 +304,7 @@ func TestShowSeries(t *testing.T) {
 
 	// Verify that the cpu series is available on all nodes.
 	t.Log("Verify nodes have series for measurement cpu")
-	verifySeriesAll(t, dbName, "cpu", []string{"cpu"})
+	verifySeriesAll(t, dbName, []string{"cpu"})
 }
 
 // TestShowTagKeys tests that tags keys for a series are available from
@@ -623,8 +622,8 @@ func verifyMeasurementAll(t *testing.T, dbName, measurement string, want bool) {
 }
 
 // verifySeriesAll verifies that all nodes in the cluster have the given
-// series for the given measurement.
-func verifySeriesAll(t *testing.T, dbName, measurement string, series []string) {
+// series
+func verifySeriesAll(t *testing.T, dbName string, series []string) {
 	for resp := range clst.QueryAll("SHOW SERIES", dbName) {
 		if resp.err != nil {
 			t.Fatal(resp.err)
@@ -635,10 +634,10 @@ func verifySeriesAll(t *testing.T, dbName, measurement string, series []string) 
 			t.Fatal(err)
 		}
 
-		if !result.HasSeries(measurement, series) {
-			t.Fatalf("Node %d does not have series %s for measurement %s", resp.nodeID, series, measurement)
+		if !result.HasSeries(series) {
+			t.Fatalf("Node %d does not have series %s", resp.nodeID, series)
 		}
-		t.Logf("Node %d has correct series for measurement %s", resp.nodeID, measurement)
+		t.Logf("Node %d has correct series", resp.nodeID)
 	}
 }
 
