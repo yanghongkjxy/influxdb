@@ -2,7 +2,7 @@
 
 ### Features
 
-### Bugfixes
+- [#5960](https://github.com/influxdata/influxdb/pull/5960): Provide ability to delete a shard via the Meta Client.
 
 ## v0.11.0 [unreleased]
 
