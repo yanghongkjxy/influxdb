@@ -594,6 +594,125 @@ func TestDropRetentionPolicy_Local(t *testing.T) {
 	}
 }
 
+// TestDropShard tests that a dropped shard results in the shard being
+// removed from the cluster.
+func TestDropShard(t *testing.T) {
+	t.Parallel()
+	defer checkPanic(t)
+
+	dbName, err := clst.NewDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Using database: %s", dbName)
+
+	// Insert a measurement
+	var config = client.BatchPointsConfig{Database: dbName}
+
+	resp := clst.WriteAny(config, "cpu value=1")
+	if resp.err != nil {
+		t.Fatal(resp.err)
+	}
+	t.Logf("[node %d] point written.", resp.nodeID)
+
+	t.Logf("Verify the same shard for %s exists on all nodes", dbName)
+	var shardID int
+	for resp := range clst.QueryAll("SHOW SHARDS", "") {
+		if resp.err != nil {
+			t.Fatal(resp.err)
+		}
+
+		result, err := parseResult(ShowShards, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		shards := result.ShardsForDB(dbName)
+		if len(shards) != 1 {
+			t.Fatalf("%d shards but expected 1", len(shards))
+		}
+
+		if shardID == 0 {
+			shardID = shards[0].ID
+		} else if shards[0].ID != shardID {
+			t.Fatalf("got shard with ID %d, but previous shard has ID %d", shards[0].ID, shardID)
+		}
+	}
+
+	t.Logf("Dropping shard %d", shardID)
+	if resp = clst.QueryAny(fmat("DROP SHARD %d", shardID), ""); resp.err != nil {
+		t.Fatal(resp.err)
+	}
+
+	t.Log("Verify the shard no longer exists")
+	for resp := range clst.QueryAll("SHOW SHARDS", "") {
+		if resp.err != nil {
+			t.Fatal(resp.err)
+		}
+
+		result, err := parseResult(ShowShards, resp.result)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if result.HasShardWithID(shardID) {
+			t.Fatalf("shard with ID %d still in cluster", shardID)
+		}
+	}
+}
+
+// TestDropShard_Local tests that a dropped shard results in the shard
+// data being removed from all data nodes.
+func TestDropShard_Local(t *testing.T) {
+	t.Parallel()
+	defer checkPanic(t)
+
+	// This can only run on a local cluster.
+	lclst, ok := clst.(*local)
+	if !ok {
+		t.Skip("Skipping on non-local cluster")
+	}
+
+	dbName, err := lclst.NewDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Using database: %s", dbName)
+
+	// Insert a measurement
+	var config = client.BatchPointsConfig{Database: dbName}
+
+	resp := clst.WriteAny(config, "cpu value=1")
+	if resp.err != nil {
+		t.Fatal(resp.err)
+	}
+	t.Logf("[node %d] point written.", resp.nodeID)
+
+	t.Logf("Verifying shard directory exists on all nodes")
+	path := fmt.Sprintf("%s/default/1", dbName)
+	got, err := lclst.NodesHavingPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if exp := lclst.Info().DataN; got != exp {
+		t.Fatalf("%d nodes have the required path on disk, expected %d", got, exp)
+	}
+
+	t.Log("Dropping shard")
+	if resp = clst.QueryAny("DROP SHARD 1", ""); resp.err != nil {
+		t.Fatal(resp.err)
+	}
+
+	t.Log("Verify nodes no longer have the shard directory")
+	if got, err = lclst.NodesHavingPath(path); err != nil {
+		t.Fatal(err)
+	}
+	if exp := 0; got != exp {
+		t.Fatalf("%d nodes have the required path on disk, expected %d", got, exp)
+	}
+}
+
 // verifyMeasurementAll verifies that all nodes in the cluster have (or
 // don't have), the specified measurement.
 func verifyMeasurementAll(t *testing.T, dbName, measurement string, want bool) {

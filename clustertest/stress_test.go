@@ -1,6 +1,7 @@
 package clustertest
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -74,4 +75,65 @@ func TestCreateWriteShowMeasurements(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestWriteDropShard repeatedly writes to a shard whilst also dropping
+// it concurrently.
+func TestWriteDropShard(t *testing.T) {
+	n := 100
+
+	t.Parallel()
+	defer checkPanic(t)
+
+	dbName, err := clst.NewDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Database %s created", dbName)
+
+	config := client.BatchPointsConfig{Database: dbName}
+
+	resp := clst.WriteAny(config, "cpu value=1")
+	if resp.err != nil {
+		t.Fatal(resp.err)
+	}
+
+	if resp = clst.QueryAny("SHOW SHARDS", ""); resp.err != nil {
+		t.Fatal(resp.err)
+	}
+
+	result, err := parseResult(ShowShards, resp.result)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	shards := result.ShardsForDB(dbName)
+	if len(shards) != 1 {
+		t.Fatalf("%d shards but expected 1", len(shards))
+	}
+	shardID := shards[0].ID
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < n; i++ {
+			resp := clst.WriteAny(config, "cpu value=1")
+			if resp.err != nil {
+				t.Fatal(resp.err)
+			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < n*10; i++ {
+			resp := clst.QueryAny(fmat("DROP SHARD %d", shardID), "")
+			if resp.err != nil {
+				t.Fatal(resp.err)
+			}
+		}
+	}()
+	wg.Wait()
 }

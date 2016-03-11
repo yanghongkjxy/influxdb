@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/influxdata/influxdb/client/v2"
@@ -23,9 +25,12 @@ const (
 	ShowTagValues
 	ShowFieldKeys
 	ShowRetentionPolicies
+	ShowShards
 )
 
 // commandResult contains parsed data from a query result.
+// TODO(edd): this is a bit ghetto, because we're sparsly setting data
+// on this generic "result type".
 type commandResult struct {
 	dataServers       map[int]string
 	metaServers       map[int]string
@@ -36,6 +41,17 @@ type commandResult struct {
 	tagValues         map[string][]string
 	fieldKeys         map[string][]string
 	retentionPolicies map[string]retentionPolicy
+	shards            []shard
+}
+
+// shard contains parsed shard information.
+// TODO(edd): add more shard data to this when we need it.
+type shard struct {
+	ID              int
+	Database        string
+	RetentionPolicy string
+	ShardGroup      int
+	Owners          []int
 }
 
 // retentionPolicy contains parsed retention policy data.
@@ -145,6 +161,28 @@ func (r commandResult) HasRetentionPolicy(rp retentionPolicy) bool {
 	return reflect.DeepEqual(got, rp)
 }
 
+// ShardsForDB filters shards by the provided database name.
+func (r commandResult) ShardsForDB(database string) []shard {
+	var shards []shard
+	for _, s := range r.shards {
+		if s.Database == database {
+			shards = append(shards, s)
+		}
+	}
+	return shards
+}
+
+// HasShardWithID determins if the result contains a shard with the
+// provided ID.
+func (r commandResult) HasShardWithID(id int) bool {
+	for _, s := range r.shards {
+		if s.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // parseResult parses the client result.
 //
 // Currently parseResult only supports the results of:
@@ -157,6 +195,7 @@ func (r commandResult) HasRetentionPolicy(rp retentionPolicy) bool {
 // - SHOW TAG VALUES
 // - SHOW FIELD KEYS
 // - SHOW RETENTION POLICIES
+// - SHOW SHARDS
 //
 func parseResult(c command, result client.Result) (*commandResult, error) {
 	res := &commandResult{
@@ -317,6 +356,51 @@ func parseResult(c command, result client.Result) (*commandResult, error) {
 					return nil, parseBoolError(value[idxs[3]])
 				}
 				res.retentionPolicies[rp.Name] = rp
+			case ShowShards:
+				var (
+					labels = []string{"id", "database", "retention_policy", "shard_group", "owners"}
+					idxs   = make([]int, 5)
+					s      shard
+					err    error
+					ok     bool
+				)
+
+				for i := 0; i < len(labels); i++ {
+					if idxs[i], err = columnIDX(labels[i], row.Columns); err != nil {
+						return nil, err
+					}
+				}
+
+				if s.ID, err = toInt(value[idxs[0]]); err != nil {
+					return nil, err
+				}
+
+				if s.Database, ok = value[idxs[1]].(string); !ok {
+					return nil, parseStringError(value[idxs[1]])
+				}
+
+				if s.RetentionPolicy, ok = value[idxs[2]].(string); !ok {
+					return nil, parseStringError(value[idxs[2]])
+				}
+
+				if s.ShardGroup, err = toInt(value[idxs[3]]); err != nil {
+					return nil, err
+				}
+
+				ownstr, ok := value[idxs[4]].(string)
+				if !ok {
+					return nil, parseStringError(value[idxs[4]])
+				}
+
+				owners := strings.Split(ownstr, ",")
+				for _, owner := range owners {
+					oi, err := strconv.Atoi(owner)
+					if err != nil {
+						return nil, err
+					}
+					s.Owners = append(s.Owners, oi)
+				}
+				res.shards = append(res.shards, s)
 			default:
 				panic("unable to parse this command")
 			}
