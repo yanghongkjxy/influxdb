@@ -367,8 +367,9 @@ func (s *Shard) validateSeriesAndFields(points []models.Point) ([]*SeriesCreate,
 	// get the shard mutex for locally defined fields
 	for _, p := range points {
 		// see if the series should be added to the index
-		if ss := s.index.Series(string(p.Key())); ss == nil {
-			series := NewSeries(string(p.Key()), p.Tags())
+		key := string(p.Key())
+		if ss := s.index.Series(key); ss == nil {
+			series := NewSeries(key, p.Tags())
 			seriesToCreate = append(seriesToCreate, &SeriesCreate{p.Name(), series})
 			seriesToAddShardTo = append(seriesToAddShardTo, series.Key)
 		} else if !ss.shardIDs[s.id] {
