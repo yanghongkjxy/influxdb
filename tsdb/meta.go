@@ -53,8 +53,9 @@ func NewDatabaseIndex(name string) *DatabaseIndex {
 // Series returns a series by key.
 func (d *DatabaseIndex) Series(key string) *Series {
 	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.series[key]
+	s := d.series[key]
+	d.mu.RUnlock()
+	return s
 }
 
 // SeriesN returns the number of series.
