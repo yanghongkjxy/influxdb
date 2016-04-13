@@ -104,6 +104,10 @@ func NewHandler(requireAuthentication, loggingEnabled, writeTrace bool, rowLimit
 			"GET", "/query", true, true, h.serveQuery,
 		},
 		Route{
+			"query", // Query serving route.
+			"POST", "/query", true, true, h.serveQuery,
+		},
+		Route{
 			"write-options", // Satisfy CORS checks.
 			"OPTIONS", "/write", true, true, h.serveOptions,
 		},
@@ -320,7 +324,8 @@ func (h *Handler) serveQuery(w http.ResponseWriter, r *http.Request, user *meta.
 	// Execute query.
 	w.Header().Add("Connection", "close")
 	w.Header().Add("content-type", "application/json")
-	results := h.QueryExecutor.ExecuteQuery(query, db, chunkSize, closing)
+	readonly := r.Method == "GET" || r.Method == "HEAD"
+	results := h.QueryExecutor.ExecuteQuery(query, db, chunkSize, readonly, closing)
 
 	// if we're not chunking, this will be the in memory buffer for all results before sending to client
 	resp := Response{Results: make([]*influxql.Result, 0)}

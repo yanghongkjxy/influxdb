@@ -79,6 +79,9 @@ type ExecutionContext struct {
 	// The requested maximum number of points to return in each result.
 	ChunkSize int
 
+	// If this query is being executed in a read-only context.
+	ReadOnly bool
+
 	// Hold the query executor's logger.
 	Log *log.Logger
 
@@ -148,13 +151,13 @@ func (e *QueryExecutor) Close() error {
 }
 
 // ExecuteQuery executes each statement within a query.
-func (e *QueryExecutor) ExecuteQuery(query *Query, database string, chunkSize int, closing chan struct{}) <-chan *Result {
+func (e *QueryExecutor) ExecuteQuery(query *Query, database string, chunkSize int, readonly bool, closing chan struct{}) <-chan *Result {
 	results := make(chan *Result)
-	go e.executeQuery(query, database, chunkSize, closing, results)
+	go e.executeQuery(query, database, chunkSize, readonly, closing, results)
 	return results
 }
 
-func (e *QueryExecutor) executeQuery(query *Query, database string, chunkSize int, closing <-chan struct{}, results chan *Result) {
+func (e *QueryExecutor) executeQuery(query *Query, database string, chunkSize int, readonly bool, closing <-chan struct{}, results chan *Result) {
 	defer close(results)
 	defer e.recover(query, results)
 
@@ -180,6 +183,7 @@ func (e *QueryExecutor) executeQuery(query *Query, database string, chunkSize in
 		Results:     results,
 		Database:    database,
 		ChunkSize:   chunkSize,
+		ReadOnly:    readonly,
 		Log:         logger,
 		InterruptCh: task.closing,
 	}
@@ -232,9 +236,15 @@ loop:
 			}
 			continue loop
 		case *KillQueryStatement:
+			var messages []*Message
+			if ctx.ReadOnly {
+				messages = append(messages, ReadOnlyWarning(stmt.String()))
+			}
+
 			err := e.executeKillQueryStatement(stmt)
 			results <- &Result{
 				StatementID: i,
+				Messages:    messages,
 				Err:         err,
 			}
 
