@@ -780,7 +780,6 @@ def main(args):
     if args.test:
         if not run_tests(args.race, args.parallel, args.timeout, args.no_vet):
             return 1
-        return 0
 
     platforms = []
     single_build = True
