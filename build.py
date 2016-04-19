@@ -408,6 +408,7 @@ def upload_packages(packages, bucket_name=None, overwrite=False):
                                 os.path.basename(p))
         else:
             name = os.path.basename(p)
+        logging.debug("Using key: {}".format(name))
         if bucket.get_key(name) is None or overwrite:
             logging.info("Uploading file {}".format(name))
             k = Key(bucket)
@@ -632,8 +633,9 @@ def package(build_output, version, nightly=False, rc=None, iteration=1, static=F
                     package_iteration = iteration
                     if not release and not nightly:
                         # For non-release builds, just use the commit hash as the version
-                        package_version = "{}-{}".format(version,
-                                                         get_current_commit(short=True))
+                        package_version = "{}-{}-{}".format(version,
+                                                            get_current_branch(),
+                                                            get_current_commit(short=True))
                         package_iteration = "0"
                     package_build_root = build_root
                     current_location = build_output[platform][arch]
