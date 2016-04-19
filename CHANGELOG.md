@@ -32,6 +32,7 @@
 - [#6413](https://github.com/influxdata/influxdb/pull/6413): Prevent goroutine leak from persistent http connections. Thanks @aaronknister.
 - [#6414](https://github.com/influxdata/influxdb/pull/6414): Send "Connection: close" header for queries.
 - [#6425](https://github.com/influxdata/influxdb/pull/6425): Close idle tcp connections in HTTP client to prevent tcp conn leak.
+- [#4630](https://github.com/influxdata/influxdb/issues/4630): Prioritize querying tags over fields when they conflict.
 
 ## v0.12.1 [2016-04-08]
 
