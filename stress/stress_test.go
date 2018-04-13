@@ -54,7 +54,8 @@ func TestTimer_Elapsed(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	tmr.StopTimer()
 	e := tmr.Elapsed()
-	if time.Duration(2*time.Second) > e || e > time.Duration(3*time.Second) {
+
+	if time.Duration(1990*time.Millisecond) > e || e > time.Duration(3*time.Second) {
 		t.Errorf("expected around %s got %s", time.Duration(2*time.Second), e)
 	}
 }
@@ -321,8 +322,8 @@ func TestBasicClient_send(t *testing.T) {
 }
 
 func TestBasicClient_Batch(t *testing.T) {
-	c := make(chan Point, 0)
-	r := make(chan response, 0)
+	c := make(chan Point)
+	r := make(chan response)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		content, _ := ioutil.ReadAll(r.Body)
@@ -346,11 +347,6 @@ func TestBasicClient_Batch(t *testing.T) {
 		}
 
 	}(c)
-
-	go func(r chan response) {
-		for _ = range r {
-		}
-	}(r)
 
 	err := basicIC.Batch(c, r)
 	close(r)
@@ -387,12 +383,13 @@ var basicQC = &BasicQueryClient{
 
 func TestBasicQueryClient_Query(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("X-Influxdb-Version", "x.x")
+		w.Header().Set("X-Influxdb-Build", "OSS")
 		var data client.Response
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(data)
-
-		return
 	}))
 	defer ts.Close()
 
@@ -412,8 +409,8 @@ func TestBasicQueryClient_Query(t *testing.T) {
 	}
 
 	elapsed := r.Timer.Elapsed()
-	if elapsed == time.Duration(0) {
-		t.Errorf("Expected %v to not be 0", elapsed)
+	if elapsed.Nanoseconds() == 0 {
+		t.Errorf("Expected %v to not be 0", elapsed.Nanoseconds())
 	}
 
 }
@@ -434,7 +431,7 @@ func Test_NewConfigWithFile(t *testing.T) {
 	if p.Basic.Database != "stress" {
 		t.Errorf("Expected `stress` got %s", p.Basic.Database)
 	}
-	if p.Basic.ResetDatabase != true {
+	if !p.Basic.ResetDatabase {
 		t.Errorf("Expected true got %v", p.Basic.ResetDatabase)
 	}
 
@@ -476,8 +473,8 @@ func Test_NewConfigWithFile(t *testing.T) {
 	if wc.Concurrency != 10 {
 		t.Errorf("Expected 10 got %v", wc.Concurrency)
 	}
-	if wc.SSL != false {
-		t.Errorf("Expected 10 got %v", wc.SSL)
+	if wc.SSL {
+		t.Errorf("Expected true got %v", wc.SSL)
 	}
 	if wc.Format != "line_http" {
 		t.Errorf("Expected `line_http` got %s", wc.Format)
@@ -521,7 +518,7 @@ func Test_NewConfigWithoutFile(t *testing.T) {
 	if p.Basic.Database != "stress" {
 		t.Errorf("Expected `stress` got %s", p.Basic.Database)
 	}
-	if p.Basic.ResetDatabase != true {
+	if !p.Basic.ResetDatabase {
 		t.Errorf("Expected true got %v", p.Basic.ResetDatabase)
 	}
 
@@ -563,8 +560,8 @@ func Test_NewConfigWithoutFile(t *testing.T) {
 	if wc.Concurrency != 10 {
 		t.Errorf("Expected 10 got %v", wc.Concurrency)
 	}
-	if wc.SSL != false {
-		t.Errorf("Expected 10 got %v", wc.SSL)
+	if wc.SSL {
+		t.Errorf("Expected true got %v", wc.SSL)
 	}
 	if wc.Format != "line_http" {
 		t.Errorf("Expected `line_http` got %s", wc.Format)

@@ -12,35 +12,26 @@ clone_folder: c:\gopath\src\github.com\influxdata\influxdb
 
 # Environment variables
 environment:
-  #AppVeyor has go 1.6 as default go environment
-  GOROOT: C:\go
+  GOROOT: C:\go19
   GOPATH: C:\gopath
 
 # Scripts that run after cloning repository
 install:
  - set PATH=%GOROOT%\bin;%GOPATH%\bin;%PATH%
+ - rmdir c:\go /s /q
  - echo %PATH%
  - echo %GOPATH%
  - cd C:\gopath\src\github.com\influxdata\influxdb
  - go version
  - go env
- - go get github.com/sparrc/gdm
+ - go get github.com/golang/dep/cmd/dep
  - cd C:\gopath\src\github.com\influxdata\influxdb
- - gdm restore
+ - dep ensure -vendor-only
 
-# To run your custom scripts instead of automatic MSBuild 
+# To run your custom scripts instead of automatic MSBuild
 build_script:
- #Currently for gdm to work on Windows, we need go 1.6, but Influx is on go1.4.3, so switch the go environment
- - set GOROOT=C:\go14
- - set PATH=%GOROOT%\bin;%GOPATH%\bin;%PATH%
- - echo %PATH%
- - echo %GOPATH%
  - go get -t -v ./...
-  
-# To run your custom scripts instead of automatic tests
-#test_script:
- - go test -race -v ./...
- 
+ - go test -timeout 15m -v ./...
+
 # To disable deployment
 deploy: off
-

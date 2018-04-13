@@ -4,6 +4,7 @@ import (
 	"collectd.org/api"
 	"collectd.org/network"
 
+	"context"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -32,12 +33,9 @@ func main() {
 
 	go func() {
 		ticker := time.NewTicker(time.Second)
-		for {
-			select {
-			case <-ticker.C:
-				for i := 0; i < *rate; i++ {
-					rateLimiter <- i
-				}
+		for range ticker.C {
+			for i := 0; i < *rate; i++ {
+				rateLimiter <- i
 			}
 		}
 	}()
@@ -59,7 +57,8 @@ func main() {
 			Interval: 10 * time.Second,
 			Values:   []api.Value{api.Gauge(42.0)},
 		}
-		if err := conn.Write(vl); err != nil {
+		ctx := context.TODO()
+		if err := conn.Write(ctx, &vl); err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}

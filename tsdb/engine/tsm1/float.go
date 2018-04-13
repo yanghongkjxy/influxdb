@@ -12,23 +12,20 @@ this version.
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"math"
+	"math/bits"
 
-	"github.com/dgryski/go-bits"
 	"github.com/dgryski/go-bitstream"
 )
 
-const (
-	// floatUncompressed is an uncompressed format using 8 bytes per value.
-	// Not yet implemented.
-	floatUncompressed = 0
+// Note: an uncompressed format is not yet implemented.
+// floatCompressedGorilla is a compressed format using the gorilla paper encoding
+const floatCompressedGorilla = 1
 
-	// floatCompressedGorilla is a compressed format using the gorilla paper encoding
-	floatCompressedGorilla = 1
-)
+// uvnan is the constant returned from math.NaN().
+const uvnan = 0x7FF8000000000001
 
-// FloatEncoder encodes multiple float64s into a byte slice
+// FloatEncoder encodes multiple float64s into a byte slice.
 type FloatEncoder struct {
 	val float64
 	err error
@@ -43,6 +40,7 @@ type FloatEncoder struct {
 	finished bool
 }
 
+// NewFloatEncoder returns a new FloatEncoder.
 func NewFloatEncoder() *FloatEncoder {
 	s := FloatEncoder{
 		first:   true,
@@ -50,25 +48,43 @@ func NewFloatEncoder() *FloatEncoder {
 	}
 
 	s.bw = bitstream.NewWriter(&s.buf)
+	s.buf.WriteByte(floatCompressedGorilla << 4)
 
 	return &s
-
 }
 
+// Reset sets the encoder back to its initial state.
+func (s *FloatEncoder) Reset() {
+	s.val = 0
+	s.err = nil
+	s.leading = ^uint64(0)
+	s.trailing = 0
+	s.buf.Reset()
+	s.buf.WriteByte(floatCompressedGorilla << 4)
+
+	s.bw.Resume(0x0, 8)
+
+	s.finished = false
+	s.first = true
+}
+
+// Bytes returns a copy of the underlying byte buffer used in the encoder.
 func (s *FloatEncoder) Bytes() ([]byte, error) {
-	return append([]byte{floatCompressedGorilla << 4}, s.buf.Bytes()...), s.err
+	return s.buf.Bytes(), s.err
 }
 
-func (s *FloatEncoder) Finish() {
+// Flush indicates there are no more values to encode.
+func (s *FloatEncoder) Flush() {
 	if !s.finished {
 		// write an end-of-stream record
 		s.finished = true
-		s.Push(math.NaN())
+		s.Write(math.NaN())
 		s.bw.Flush(bitstream.Zero)
 	}
 }
 
-func (s *FloatEncoder) Push(v float64) {
+// Write encodes v to the underlying buffer.
+func (s *FloatEncoder) Write(v float64) {
 	// Only allow NaN as a sentinel value
 	if math.IsNaN(v) && !s.finished {
 		s.err = fmt.Errorf("unsupported value: NaN")
@@ -89,8 +105,8 @@ func (s *FloatEncoder) Push(v float64) {
 	} else {
 		s.bw.WriteBit(bitstream.One)
 
-		leading := bits.Clz(vDelta)
-		trailing := bits.Ctz(vDelta)
+		leading := uint64(bits.LeadingZeros64(vDelta))
+		trailing := uint64(bits.TrailingZeros64(vDelta))
 
 		// Clamp number of leading zeros to avoid overflow when encoding
 		leading &= 0x1F
@@ -122,17 +138,15 @@ func (s *FloatEncoder) Push(v float64) {
 	s.val = v
 }
 
-// FloatDecoder decodes a byte slice into multipe float64 values
+// FloatDecoder decodes a byte slice into multiple float64 values.
 type FloatDecoder struct {
-	val float64
+	val uint64
 
 	leading  uint64
 	trailing uint64
 
 	br BitReader
-
-	b       []byte
-	breader bytesReader
+	b  []byte
 
 	first    bool
 	finished bool
@@ -142,18 +156,23 @@ type FloatDecoder struct {
 
 // SetBytes initializes the decoder with b. Must call before calling Next().
 func (it *FloatDecoder) SetBytes(b []byte) error {
-	// first byte is the compression type.
-	// we currently just have gorilla compression.
-	it.breader = bytesReader{b: b[1:]}
-	it.br.Reset(&it.breader)
+	var v uint64
+	if len(b) == 0 {
+		v = uvnan
+	} else {
+		// first byte is the compression type.
+		// we currently just have gorilla compression.
+		it.br.Reset(b[1:])
 
-	v, err := it.br.ReadBits(64)
-	if err != nil {
-		return err
+		var err error
+		v, err = it.br.ReadBits(64)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Reset all fields.
-	it.val = math.Float64frombits(v)
+	it.val = v
 	it.leading = 0
 	it.trailing = 0
 	it.b = b
@@ -164,6 +183,7 @@ func (it *FloatDecoder) SetBytes(b []byte) error {
 	return nil
 }
 
+// Next returns true if there are remaining values to read.
 func (it *FloatDecoder) Next() bool {
 	if it.err != nil || it.finished {
 		return false
@@ -173,7 +193,7 @@ func (it *FloatDecoder) Next() bool {
 		it.first = false
 
 		// mark as finished if there were no values.
-		if math.IsNaN(it.val) {
+		if it.val == uvnan { // IsNaN
 			it.finished = true
 			return false
 		}
@@ -182,20 +202,29 @@ func (it *FloatDecoder) Next() bool {
 	}
 
 	// read compressed value
-	bit, err := it.br.ReadBit()
-	if err != nil {
+	var bit bool
+	if it.br.CanReadBitFast() {
+		bit = it.br.ReadBitFast()
+	} else if v, err := it.br.ReadBit(); err != nil {
 		it.err = err
 		return false
+	} else {
+		bit = v
 	}
 
 	if !bit {
 		// it.val = it.val
 	} else {
-		bit, err := it.br.ReadBit()
-		if err != nil {
+		var bit bool
+		if it.br.CanReadBitFast() {
+			bit = it.br.ReadBitFast()
+		} else if v, err := it.br.ReadBit(); err != nil {
 			it.err = err
 			return false
+		} else {
+			bit = v
 		}
+
 		if !bit {
 			// reuse leading/trailing zero bits
 			// it.leading, it.trailing = it.leading, it.trailing
@@ -220,51 +249,32 @@ func (it *FloatDecoder) Next() bool {
 			it.trailing = 64 - it.leading - mbits
 		}
 
-		mbits := int(64 - it.leading - it.trailing)
+		mbits := uint(64 - it.leading - it.trailing)
 		bits, err := it.br.ReadBits(mbits)
 		if err != nil {
 			it.err = err
 			return false
 		}
-		vbits := math.Float64bits(it.val)
+
+		vbits := it.val
 		vbits ^= (bits << it.trailing)
 
-		val := math.Float64frombits(vbits)
-		if math.IsNaN(val) {
+		if vbits == uvnan { // IsNaN
 			it.finished = true
 			return false
 		}
-		it.val = val
+		it.val = vbits
 	}
 
 	return true
 }
 
+// Values returns the current float64 value.
 func (it *FloatDecoder) Values() float64 {
-	return it.val
+	return math.Float64frombits(it.val)
 }
 
+// Error returns the current decoding error.
 func (it *FloatDecoder) Error() error {
 	return it.err
-}
-
-// bytesReader is a simplified implementation of bytes.Reader.
-// This is added to remove allocations from needing to call bytes.NewReader().
-type bytesReader struct {
-	b []byte
-	i int64
-}
-
-// Read reads the next bytes in to buffer b.
-// Implementation copied from bytes.Reader.Read.
-func (r *bytesReader) Read(b []byte) (n int, err error) {
-	if len(b) == 0 {
-		return 0, nil
-	}
-	if r.i >= int64(len(r.b)) {
-		return 0, io.EOF
-	}
-	n = copy(b, r.b[r.i:])
-	r.i += int64(n)
-	return
 }
